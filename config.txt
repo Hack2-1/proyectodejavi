@@ -1,0 +1,153 @@
+# config.txt - Configuración centralizada del sistema de gestión de servicios
+# Uso: source config.txt en cada script
+
+# ============================================================================
+# CONFIGURACIÓN DE TELEGRAM
+# ============================================================================
+# IMPORTANTE: En producción, usar variables de entorno, no escribir tokens aquí
+CREDENTIALS_FILE="${CREDENTIALS_FILE:-/etc/sistema-servicios/telegram.env}"
+CREDENTIALS_ERROR=""
+
+if [ -r "$CREDENTIALS_FILE" ]; then
+    source "$CREDENTIALS_FILE"
+elif [ -e "$CREDENTIALS_FILE" ]; then
+    CREDENTIALS_ERROR="No hay permisos para leer $CREDENTIALS_FILE"
+elif [ -d "$(dirname "$CREDENTIALS_FILE")" ] &&
+     [ ! -x "$(dirname "$CREDENTIALS_FILE")" ]; then
+    CREDENTIALS_ERROR="No hay permisos para acceder a $(dirname "$CREDENTIALS_FILE")"
+fi
+
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-tu_token_aqui}"
+TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-tu_chat_id_aqui}"
+TELEGRAM_ENABLED="${TELEGRAM_ENABLED:-false}"
+
+# ============================================================================
+# DIRECTORIOS Y RUTAS
+# ============================================================================
+CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_DIR="${LOG_DIR:-/var/log/sistema-servicios}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/sistema-servicios}"
+SCRIPTS_DIR="${SCRIPTS_DIR:-$CONFIG_DIR}"
+REPORTS_DIR="${REPORTS_DIR:-/var/log/reportes}"
+INVENTORY_DIR="${INVENTORY_DIR:-/var/log}"
+HOSTS_REMOTOS_FILE="${SCRIPTS_DIR}/hosts.txt"
+
+# ============================================================================
+# UMBRALES DE MONITOREO
+# ============================================================================
+UMBRAL_CPU=70              # Porcentaje máximo de uso de CPU
+UMBRAL_DISCO=70            # Porcentaje máximo de uso de disco
+UMBRAL_MEMORIA=80          # Porcentaje máximo de uso de memoria
+
+# ============================================================================
+# SERVICIOS A MONITOREAR (espacios como separador)
+# ============================================================================
+SERVICIOS="nginx mysql ssh"
+
+# ============================================================================
+# HOSTS PARA MONITOREO DE RED (ping y conectividad)
+# ============================================================================
+HOSTS_PING="192.168.1.1 8.8.8.8 google.com"
+PUERTOS_CRITICOS="80 443 22"
+
+# ============================================================================
+# DIRECTORIOS PARA RESPALDO (espacios como separador)
+# ============================================================================
+DIRS_RESPALDO="/home /etc /var/www"
+
+# ============================================================================
+# CONFIGURACIÓN DE RESPALDOS
+# ============================================================================
+RESPALDO_COMPRESION="gzip"      # gzip, bzip2, xz
+RESPALDO_RETENCION=30            # Días de retención
+USUARIO_RESPALDO="backup"        # Usuario sin privilegios root
+
+# ============================================================================
+# CONFIGURACIÓN DE USUARIO REMOTO
+# ============================================================================
+USUARIO_REMOTO="${USUARIO_REMOTO:-$(id -un)}"
+TIMEOUT_SSH=30
+PUERTO_SSH=22
+
+# ============================================================================
+# CONFIGURACIÓN DE LOGGING
+# ============================================================================
+LOG_LEVEL="INFO"          # DEBUG, INFO, WARN, ERROR
+TIMESTAMP_FORMAT="%Y-%m-%d %H:%M:%S"
+
+# ============================================================================
+# FUNCIÓN: Enviar notificación por Telegram
+# ============================================================================
+# Uso: enviar_telegram "Título" "Mensaje"
+enviar_telegram() {
+    local titulo="$1"
+    local mensaje="$2"
+
+    if [ -n "$CREDENTIALS_ERROR" ]; then
+        echo "Advertencia: $CREDENTIALS_ERROR" >&2
+        echo "Cierra sesión y vuelve a entrar para aplicar el grupo sistema-servicios" >&2
+        return 1
+    fi
+
+    if [ "$TELEGRAM_ENABLED" != "true" ]; then
+        echo "Advertencia: Telegram está deshabilitado" >&2
+        return 0
+    fi
+
+    if [ "$TELEGRAM_BOT_TOKEN" = "tu_token_aqui" ] ||
+       [ "$TELEGRAM_CHAT_ID" = "tu_chat_id_aqui" ]; then
+        echo "Advertencia: Telegram está habilitado pero no está configurado" >&2
+        return 1
+    fi
+
+    if ! command -v curl &>/dev/null; then
+        echo "Advertencia: curl no está instalado; no se envió la notificación" >&2
+        return 1
+    fi
+
+    local texto="<b>${titulo}</b>
+${mensaje}"
+
+    curl --fail --silent --show-error --max-time 15 \
+        -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        -d "chat_id=${TELEGRAM_CHAT_ID}" \
+        -d "text=${texto}" \
+        -d "parse_mode=HTML" >/dev/null
+}
+
+# ============================================================================
+# FUNCIÓN: Registrar evento en log con timestamp
+# ============================================================================
+# Uso: registrar "nombre_script" "Descripción del evento"
+registrar() {
+    local script="$1"
+    local mensaje="$2"
+    local timestamp
+    local archivo_log
+
+    timestamp=$(date +"${TIMESTAMP_FORMAT}")
+
+    # Crear directorio si no existe
+    if ! mkdir -p "$LOG_DIR" 2>/dev/null; then
+        echo "Advertencia: No se pudo crear el directorio de logs: $LOG_DIR" >&2
+        return 1
+    fi
+
+    archivo_log="${LOG_DIR}/${script}.log"
+    if ! echo "[${timestamp}] ${mensaje}" >> "$archivo_log" 2>/dev/null; then
+        echo "Advertencia: No se pudo escribir en el log: $archivo_log" >&2
+        return 1
+    fi
+}
+
+# ============================================================================
+# FUNCIÓN: Validar que config.txt esté correctamente cargada
+# ============================================================================
+validar_config() {
+    if [ -z "$LOG_DIR" ] || [ -z "$BACKUP_DIR" ] ||
+       [ -z "$SCRIPTS_DIR" ] || [ -z "$REPORTS_DIR" ] ||
+       [ -z "$INVENTORY_DIR" ]; then
+        echo "Error: config.txt no se cargó correctamente"
+        return 1
+    fi
+}

@@ -1,0 +1,12 @@
+# hosts.txt — Lista de hosts remotos para remoto.sh
+# Formato: hostname o usuario@hostname
+# Una línea por host, comentarios con #
+
+# Ejemplo de hosts
+# admin@server1.example.com
+# ubuntu@server2.example.com
+# 192.168.1.100
+# 192.168.1.101
+
+# Descomenta y modifica según tus necesidades
+# localhost
