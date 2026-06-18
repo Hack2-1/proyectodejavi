@@ -641,7 +641,90 @@ todas las pruebas pasaron
 .fi
 .bp
 .ps 16
-.B "19. Evidencias para la exposicion"
+.B "19. Lista rapida para ejecutar todos los scripts"
+.sp 0.4
+.ps 11
+Antes de ejecutar, entrar a la carpeta del proyecto:
+.sp 0.2
+.nf
+cd "/home/michael/Documentos/OneDrive/Desktop/proyecto de bash"
+.fi
+.sp 0.4
+.B "Configurar Telegram:"
+.sp 0.2
+.nf
+bash configurar-telegram.sh
+.fi
+.sp 0.4
+.B "Monitoreo normal y monitoreo forzado para alerta:"
+.sp 0.2
+.nf
+bash monitoreo.sh
+bash monitoreo.sh -c 0 -d 0 -m 0
+.fi
+.sp 0.4
+.B "Respaldos:"
+.sp 0.2
+.nf
+bash respaldo.sh
+bash respaldo.sh /home/michael/Documentos
+.fi
+.sp 0.4
+.B "Inventario:"
+.sp 0.2
+.nf
+bash inventario.sh
+.fi
+.sp 0.4
+.B "Red:"
+.sp 0.2
+.nf
+bash red.sh
+bash red.sh -f hosts.txt -p "22 80"
+.fi
+.sp 0.4
+.B "Ejecucion remota contra la VM:"
+.sp 0.2
+.nf
+bash remoto.sh diagnostico.sh hosts.txt
+.fi
+.sp 0.4
+.B "Diagnostico local:"
+.sp 0.2
+.nf
+bash diagnostico.sh
+.fi
+.sp 0.4
+.B "Servicios:"
+.sp 0.2
+.nf
+bash servicios.sh
+bash servicios.sh ssh
+.fi
+.sp 0.4
+.B "Usuarios:"
+.sp 0.2
+.nf
+bash usuarios.sh
+.fi
+.sp 0.4
+.B "Pruebas generales:"
+.sp 0.2
+.nf
+bash test.sh
+.fi
+.sp 0.4
+.B "Revisar archivos generados:"
+.sp 0.2
+.nf
+ls -lh "$HOME/.local/state/sistema-servicios/reportes"
+ls -lh "$HOME/.local/state/sistema-servicios/inventarios"
+ls -lh "$HOME/respaldos/sistema-servicios"
+ls -lh "$HOME/.local/state/sistema-servicios/logs"
+.fi
+.bp
+.ps 16
+.B "20. Evidencias para la exposicion"
 .sp 0.4
 .ps 11
 Evidencias recomendadas:
@@ -663,7 +746,7 @@ Reporte remoto legible en REPORTS_DIR.
 test.sh con 29 pruebas pasadas.
 .bp
 .ps 16
-.B "20. Errores comunes y solucion"
+.B "21. Errores comunes y solucion"
 .sp 0.4
 .ps 11
 .B "Telegram no llega:"
@@ -689,7 +772,7 @@ ssh-keygen -R 192.168.1.72
 Revisar permisos sudo o ejecutar solo esa accion con privilegios.
 .bp
 .ps 16
-.B "21. Estado final"
+.B "22. Estado final"
 .sp 0.4
 .ps 11
 El sistema quedo alineado con la rubrica:
