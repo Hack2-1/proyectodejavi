@@ -61,7 +61,26 @@ Se usa trap para cerrar limpio si se interrumpe el script.
 Los archivos generados se guardan en rutas del usuario para no depender de root.
 .bp
 .ps 18
-.B "3. Archivos principales"
+.B "3. Arquitectura del sistema"
+.sp 0.4
+.ps 13
+El sistema se organizo en tres partes:
+.sp 0.3
+.IP "\(bu" 3
+Configuracion: config.txt y telegram.env.
+.IP "\(bu" 3
+Scripts operativos: usuarios, respaldo, monitoreo, servicios, remoto, red e inventario.
+.IP "\(bu" 3
+Evidencia: logs, reportes, respaldos, inventarios y mensajes de Telegram.
+.sp 0.4
+Flujo general:
+.sp 0.2
+.nf
+script -> config.txt -> validacion -> accion -> log/reporte -> Telegram
+.fi
+.bp
+.ps 18
+.B "4. Archivos principales"
 .sp 0.4
 .ps 13
 .IP "\(bu" 3
@@ -86,7 +105,7 @@ configurar-telegram.sh: configura token y chat id.
 test.sh: ejecuta pruebas seguras.
 .bp
 .ps 18
-.B "4. Configuracion general"
+.B "5. Configuracion general"
 .sp 0.4
 .ps 13
 El archivo config.txt centraliza los parametros:
@@ -109,7 +128,7 @@ USUARIO_REMOTO, PUERTO_SSH y TIMEOUT_SSH.
 Las credenciales reales de Telegram no se guardan en el repositorio.
 .bp
 .ps 18
-.B "5. Rutas usadas sin root"
+.B "6. Rutas usadas sin root"
 .sp 0.4
 .ps 13
 Para cumplir la buena practica de no usar root innecesariamente, el proyecto
@@ -132,7 +151,7 @@ $HOME/respaldos/sistema-servicios
 Solo usuarios.sh y servicios.sh usan sudo cuando la accion lo necesita.
 .bp
 .ps 18
-.B "6. Configuracion de Telegram"
+.B "7. Configuracion de Telegram"
 .sp 0.4
 .ps 13
 Se ejecuta:
@@ -162,7 +181,7 @@ bash monitoreo.sh -c 0 -d 0 -m 0
 .fi
 .bp
 .ps 18
-.B "7. usuarios.sh"
+.B "8. usuarios.sh"
 .sp 0.4
 .ps 13
 Funcion principal: crear, eliminar, modificar y listar usuarios.
@@ -187,7 +206,7 @@ Valida si el usuario existe o no existe, registra en usuarios.log y manda
 notificacion de Telegram por cada accion realizada.
 .bp
 .ps 18
-.B "8. respaldo.sh"
+.B "9. respaldo.sh"
 .sp 0.4
 .ps 13
 Funcion principal: comprimir directorios con tar y verificar el respaldo.
@@ -213,7 +232,7 @@ Verifica que el archivo exista y tenga tamano mayor a cero.
 Registra el resultado y manda ruta, tamano y fecha por Telegram.
 .bp
 .ps 18
-.B "9. monitoreo.sh"
+.B "10. monitoreo.sh"
 .sp 0.4
 .ps 13
 Funcion principal: leer CPU, disco y memoria.
@@ -237,7 +256,7 @@ Siempre registra la lectura. Si se supera un limite, manda alerta a Telegram
 con saltos de linea legibles.
 .bp
 .ps 18
-.B "10. servicios.sh"
+.B "11. servicios.sh"
 .sp 0.4
 .ps 13
 Funcion principal: revisar servicios configurados o recibidos por parametro.
@@ -263,7 +282,7 @@ Usa sudo solo para el reinicio si hace falta.
 Registra el estado y manda resultado por Telegram.
 .bp
 .ps 18
-.B "11. remoto.sh y VM"
+.B "12. remoto.sh y VM"
 .sp 0.4
 .ps 13
 Funcion principal: copiar y ejecutar un script en una maquina remota por SSH.
@@ -287,7 +306,7 @@ El script copia temporalmente el archivo a:
 Luego lo ejecuta, captura la salida, borra el temporal y genera reportes.
 .bp
 .ps 18
-.B "12. Reportes de remoto.sh"
+.B "13. Reportes de remoto.sh"
 .sp 0.4
 .ps 13
 remoto.sh genera:
@@ -314,7 +333,7 @@ Estado de SSH, copia y ejecucion.
 Salida capturada del script remoto.
 .bp
 .ps 18
-.B "13. red.sh"
+.B "14. red.sh"
 .sp 0.4
 .ps 13
 Funcion principal: revisar conectividad y puertos.
@@ -340,7 +359,7 @@ sin respuesta
 Si hay fallas, manda alerta por Telegram.
 .bp
 .ps 18
-.B "14. inventario.sh"
+.B "15. inventario.sh"
 .sp 0.4
 .ps 13
 Funcion principal: generar inventario de hardware y software.
@@ -365,7 +384,89 @@ Interfaces, usuarios, servicios y software instalado.
 Tambien manda resumen por Telegram y guarda reporte en INVENTORY_DIR.
 .bp
 .ps 18
-.B "15. Pruebas y evidencia"
+.B "16. Cron y automatizacion"
+.sp 0.4
+.ps 13
+El proyecto incluye crontab.txt con ejemplos para programar tareas:
+.sp 0.3
+.IP "\(bu" 3
+Respaldos diarios.
+.IP "\(bu" 3
+Monitoreo cada 5 minutos.
+.IP "\(bu" 3
+Revision de servicios cada 10 minutos.
+.IP "\(bu" 3
+Monitoreo de red cada 15 minutos.
+.IP "\(bu" 3
+Inventario diario.
+.IP "\(bu" 3
+Diagnostico remoto.
+.sp 0.3
+Se usa con:
+.sp 0.2
+.nf
+crontab -e
+.fi
+.bp
+.ps 18
+.B "17. Comandos clave para la demo"
+.sp 0.4
+.ps 13
+.nf
+bash configurar-telegram.sh
+bash monitoreo.sh -c 0 -d 0 -m 0
+bash respaldo.sh /tmp/carpeta_prueba
+bash inventario.sh
+bash red.sh -f hosts.txt -p "22 80"
+bash remoto.sh diagnostico.sh hosts.txt
+bash test.sh
+.fi
+.sp 0.4
+Estos comandos muestran alertas, reportes, respaldos, inventario y ejecucion
+remota.
+.bp
+.ps 18
+.B "18. Evidencias que se deben mostrar"
+.sp 0.4
+.ps 13
+.IP "1." 3
+Telegram configurado en el grupo PPS.
+.IP "2." 3
+Alerta de monitoreo con CPU, disco y memoria.
+.IP "3." 3
+Respaldo generado con ruta, tamano y fecha.
+.IP "4." 3
+Inventario generado y resumen enviado.
+.IP "5." 3
+Alerta de red con host parcial o sin respuesta.
+.IP "6." 3
+Ejecucion remota en VM Debian 192.168.1.72.
+.IP "7." 3
+Reporte remoto legible en REPORTS_DIR.
+.IP "8." 3
+test.sh con todas las pruebas pasadas.
+.bp
+.ps 18
+.B "19. Problemas resueltos"
+.sp 0.4
+.ps 13
+Durante la integracion se resolvieron detalles reales del proyecto:
+.sp 0.3
+.IP "\(bu" 3
+Telegram estaba usando un bot incorrecto; se configuro el bot PPS.
+.IP "\(bu" 3
+El Chat ID del grupo era negativo; se obtuvo desde getUpdates.
+.IP "\(bu" 3
+Los saltos de linea salian como texto \\n; se corrigio el formato.
+.IP "\(bu" 3
+SSH tenia una llave vieja de la VM; se actualizo known_hosts.
+.IP "\(bu" 3
+Los reportes remotos eran dificiles de leer; se mejoro el formato.
+.IP "\(bu" 3
+Se evitaron rutas /var y /etc por defecto para no depender de root.
+.bp
+.ps 18
+.B "20. Pruebas y evidencia"
 .sp 0.4
 .ps 13
 Se creo test.sh para validar de forma segura:
@@ -393,7 +494,7 @@ Generacion de reportes, respaldos e inventarios.
 GitHub actualizado con el commit final.
 .bp
 .ps 18
-.B "16. Cierre"
+.B "21. Cierre"
 .sp 0.4
 .ps 13
 El sistema cumple los puntos principales del proyecto:
