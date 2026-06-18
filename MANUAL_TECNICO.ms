@@ -425,6 +425,59 @@ bash remoto.sh diagnostico.sh hosts.txt
 .sp 0.3
 El reporte mostro que el script se ejecuto en debian0, con usuario michael,
 kernel Debian y recursos de la VM.
+.sp 0.5
+.B "Scripts que participan en la simulacion:"
+.sp 0.2
+.IP "\(bu" 3
+remoto.sh: es el script principal de la prueba remota.
+.IP "\(bu" 3
+hosts.txt: contiene la IP o hostname de la VM.
+.IP "\(bu" 3
+diagnostico.sh: es el script que se copia y ejecuta dentro de la VM.
+.IP "\(bu" 3
+red.sh: se puede usar aparte para comprobar ping y puertos del host.
+.sp 0.4
+.B "Flujo exacto de la simulacion:"
+.sp 0.2
+.IP "1." 3
+Se escribe la IP de la VM en hosts.txt.
+.IP "2." 3
+Se ejecuta bash remoto.sh diagnostico.sh hosts.txt.
+.IP "3." 3
+remoto.sh se conecta por SSH a michael@192.168.1.72.
+.IP "4." 3
+Copia diagnostico.sh a /tmp/diagnostico.sh dentro de la VM.
+.IP "5." 3
+Ejecuta el script dentro de la VM.
+.IP "6." 3
+Captura la salida del diagnostico.
+.IP "7." 3
+Borra el archivo temporal de /tmp.
+.IP "8." 3
+Genera reporte local y manda aviso por Telegram.
+.sp 0.4
+.B "Comando principal para demostrar servidor remoto:"
+.sp 0.2
+.nf
+bash remoto.sh diagnostico.sh hosts.txt
+.fi
+.sp 0.4
+.B "Comando opcional para revisar conectividad del host:"
+.sp 0.2
+.nf
+bash red.sh -f hosts.txt -p "22 80"
+.fi
+.sp 0.4
+.B "Donde se revisa la evidencia:"
+.sp 0.2
+.IP "\(bu" 3
+En la terminal se ve la salida de diagnostico.sh ejecutada en la VM.
+.IP "\(bu" 3
+En Telegram llega el mensaje de ejecucion remota.
+.IP "\(bu" 3
+En REPORTS_DIR quedan el reporte general y el reporte individual.
+.IP "\(bu" 3
+En la VM no queda el script, porque remoto.sh lo elimina de /tmp al terminar.
 .bp
 .ps 16
 .B "14. red.sh"
