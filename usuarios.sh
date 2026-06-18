@@ -3,7 +3,7 @@
 # permite crear eliminar modificar y listar usuarios
 # el script no necesita abrirse como root, solo usa sudo cuando hace falta
 
-# se busca el archivo config.txt en la misma carpeta
+# se busca el archivo config.txt en el mismo directorio donde se encuentra el proyecto
 ruta="$(cd "$(dirname "$0")" && pwd)"
 config="$ruta/config.txt"
 
@@ -78,6 +78,7 @@ if [ "$opcion" = "1" ]; then
     fi
 
     echo "Usuario '$usuario' creado correctamente."
+    #Se escribe en el log la fecha y hora de creacion del usuario
     echo "$(date '+%Y-%m-%d %H:%M:%S') usuario creado: $usuario" >> "$LOG_DIR/usuarios.log"
     enviar_telegram "Usuario creado" "Usuario: $usuario" || true
 
@@ -98,7 +99,7 @@ elif [ "$opcion" = "2" ]; then
     fi
 
     read -p "Eliminar tambien su carpeta home? [s/n]: " confirmar
-
+    #Confirmar usando mayusculas o minusculas, si se confirma se elimina la carpeta home con -r
     if [ "$confirmar" = "s" ] || [ "$confirmar" = "S" ]; then
         $permiso userdel -r "$usuario"
     else
@@ -150,7 +151,7 @@ elif [ "$opcion" = "3" ]; then
     enviar_telegram "Usuario modificado" "Usuario: $usuario
 Nuevo shell: $shell" || true
 
-# opcion 4 listar usuarios
+# opcion 4 listar usuarios existentes
 elif [ "$opcion" = "4" ]; then
     echo "usuarios del sistema:"
     awk -F: '$3 >= 1000 && $3 < 65534 {print $1 " - UID: " $3 " - Shell: " $7}' /etc/passwd
