@@ -5,7 +5,7 @@
 # CONFIGURACIÓN DE TELEGRAM
 # ============================================================================
 # IMPORTANTE: En producción, usar variables de entorno, no escribir tokens aquí
-CREDENTIALS_FILE="${CREDENTIALS_FILE:-/etc/sistema-servicios/telegram.env}"
+CREDENTIALS_FILE="${CREDENTIALS_FILE:-$HOME/.config/sistema-servicios/telegram.env}"
 CREDENTIALS_ERROR=""
 
 if [ -r "$CREDENTIALS_FILE" ]; then
@@ -25,19 +25,19 @@ TELEGRAM_ENABLED="${TELEGRAM_ENABLED:-false}"
 # DIRECTORIOS Y RUTAS
 # ============================================================================
 CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR="${LOG_DIR:-/var/log/sistema-servicios}"
-BACKUP_DIR="${BACKUP_DIR:-/var/backups/sistema-servicios}"
+LOG_DIR="${LOG_DIR:-$HOME/.local/state/sistema-servicios/logs}"
+BACKUP_DIR="${BACKUP_DIR:-$HOME/respaldos/sistema-servicios}"
 SCRIPTS_DIR="${SCRIPTS_DIR:-$CONFIG_DIR}"
-REPORTS_DIR="${REPORTS_DIR:-/var/log/reportes}"
-INVENTORY_DIR="${INVENTORY_DIR:-/var/log}"
+REPORTS_DIR="${REPORTS_DIR:-$HOME/.local/state/sistema-servicios/reportes}"
+INVENTORY_DIR="${INVENTORY_DIR:-$HOME/.local/state/sistema-servicios/inventarios}"
 HOSTS_REMOTOS_FILE="${SCRIPTS_DIR}/hosts.txt"
 
 # ============================================================================
 # UMBRALES DE MONITOREO
 # ============================================================================
-UMBRAL_CPU=70              # Porcentaje máximo de uso de CPU
-UMBRAL_DISCO=70            # Porcentaje máximo de uso de disco
-UMBRAL_MEMORIA=80          # Porcentaje máximo de uso de memoria
+UMBRAL_CPU=70              # Porcentaje maximo de uso de CPU
+UMBRAL_DISCO=70            # Porcentaje maximo de uso de disco
+UMBRAL_MEMORIA=80          # Porcentaje maximo de uso de memoria
 
 # ============================================================================
 # SERVICIOS A MONITOREAR (espacios como separador)
@@ -53,7 +53,7 @@ PUERTOS_CRITICOS="80 443 22"
 # ============================================================================
 # DIRECTORIOS PARA RESPALDO (espacios como separador)
 # ============================================================================
-DIRS_RESPALDO="/home /etc /var/www"
+DIRS_RESPALDO="$HOME"
 
 # ============================================================================
 # CONFIGURACIÓN DE RESPALDOS

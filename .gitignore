@@ -28,6 +28,10 @@
 /var/backups/sistema-servicios/
 backup/
 backups/
+respaldos/
+inventarios/
+.local/state/sistema-servicios/
+.config/sistema-servicios/
 
 # ============================================================================
 # CREDENCIALES Y TOKENS (IMPORTANTE)
@@ -62,6 +66,8 @@ Thumbs.db
 # REPORTES Y SALIDAS TEMPORALES
 # ============================================================================
 reporte_*.txt
+remoto_*.txt
+inventario_*.txt
 test_results/
 *.html
 *.pdf

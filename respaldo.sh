@@ -1,199 +1,93 @@
 #!/bin/bash
-# respaldo.sh — Gestor automatizado de respaldos
-# Uso: ./respaldo.sh [directorio_a_respaldar] (o usa config.txt)
-# Realiza compresión, verifica integridad y notifica por Telegram
+# este script crea respaldos comprimidos
+# puede recibir directorios por parametro o usar los de config.txt
 
-# 1. INICIALIZACIÓN Y VALIDACIONES
-CONFIG_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.txt"
+# se busca y carga config.txt
+ruta="$(cd "$(dirname "$0")" && pwd)"
+config="$ruta/config.txt"
 
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Error: No se encontró config.txt en el directorio del script"
+if [ ! -f "$config" ]; then
+    echo "Error: no se encontro config.txt"
     exit 1
 fi
 
-source "$CONFIG_FILE"
+source "$config"
 validar_config || exit 1
 
-# 2. CREAR DIRECTORIOS NECESARIOS
-mkdir -p "$LOG_DIR" "$BACKUP_DIR" 2>/dev/null || {
-    echo "Error: No se pudieron crear los directorios de trabajo"
-    exit 1
-}
+# si se interrumpe el respaldo se registra el error
+trap 'echo "respaldo interrumpido"; registrar "respaldo.sh" "respaldo interrumpido"; exit 1' SIGINT SIGTERM
 
-# 3. VARIABLES DE TRABAJO
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+# se crean las carpetas necesarias
+mkdir -p "$LOG_DIR" "$BACKUP_DIR"
 
-# 4. TRAP PARA MANEJO DE SEÑALES
-trap 'echo "Respaldo interrumpido"; registrar "respaldo.sh" "INTERRUMPIDO: Respaldo cancelado"; exit 1' SIGINT SIGTERM
-
-# ============================================================================
-# FUNCIONES
-# ============================================================================
-
-# 5. Validar que los directorios existan
-validar_directorios() {
-    local directorios="$1"
-
-    for directorio in $directorios; do
-        if [ ! -d "$directorio" ]; then
-            echo "⚠ Advertencia: Directorio no existe: $directorio"
-            registrar "respaldo.sh" "ADVERTENCIA: Directorio no encontrado para respaldo: $directorio"
-        fi
-    done
-}
-
-# 6. Crear archivo de respaldo comprimido
-crear_respaldo() {
-    local dirs_a_respaldar="$1"
-    local nombre_archivo="respaldo_${TIMESTAMP}.tar.${RESPALDO_COMPRESION}"
-    local ruta_completa="${BACKUP_DIR}/${nombre_archivo}"
-
-    # Determinar opciones de compresión
-    local opcion_compresion=""
-    case "$RESPALDO_COMPRESION" in
-        gzip)
-            opcion_compresion="-z"
-            ;;
-        bzip2)
-            opcion_compresion="-j"
-            ;;
-        xz)
-            opcion_compresion="-J"
-            ;;
-        *)
-            echo "Error: Formato de compresión no soportado: $RESPALDO_COMPRESION"
-            return 1
-            ;;
-    esac
-
-    # Crear respaldo
-    echo "[*] Iniciando respaldo en: $ruta_completa" >&2
-    tar $opcion_compresion -cf "$ruta_completa" $dirs_a_respaldar
-
-    if [ $? -ne 0 ]; then
-        echo "Error: No se pudo crear el respaldo"
-        registrar "respaldo.sh" "ERROR: Fallo al crear respaldo comprimido"
-        return 1
-    fi
-
-    echo "$ruta_completa"
-}
-
-# 7. Verificar integridad del respaldo
-verificar_respaldo() {
-    local archivo_respaldo="$1"
-
-    # Verificar que el archivo existe
-    if [ ! -f "$archivo_respaldo" ]; then
-        echo "Error: Archivo de respaldo no existe: $archivo_respaldo"
-        return 1
-    fi
-
-    # Verificar que el tamaño es mayor a 0
-    local tamano
-    tamano=$(stat -f%z "$archivo_respaldo" 2>/dev/null || stat -c%s "$archivo_respaldo" 2>/dev/null)
-
-    if [ "$tamano" -le 0 ]; then
-        echo "Error: Archivo de respaldo vacío o corrupto"
-        registrar "respaldo.sh" "ERROR: Respaldo corrupto (tamaño: $tamano bytes)"
-        return 1
-    fi
-
-    # Validar integridad del archivo tar
-    case "$RESPALDO_COMPRESION" in
-        gzip)  tar -tzf "$archivo_respaldo" >/dev/null 2>&1 ;;
-        bzip2) tar -tjf "$archivo_respaldo" >/dev/null 2>&1 ;;
-        xz)    tar -tJf "$archivo_respaldo" >/dev/null 2>&1 ;;
-    esac
-
-    if [ $? -ne 0 ]; then
-        echo "Error: Respaldo corrupto o no es un archivo tar válido"
-        registrar "respaldo.sh" "ERROR: Archivo tar inválido"
-        return 1
-    fi
-
-    echo "✓ Respaldo verificado correctamente"
-    echo "  Tamaño: $(numfmt --to=iec-i --suffix=B "$tamano" 2>/dev/null || echo "${tamano} bytes")"
-    return 0
-}
-
-# 8. Limpiar respaldos antiguos
-limpiar_respaldos_antiguos() {
-    local dias_retencion="$RESPALDO_RETENCION"
-
-    echo "[*] Limpiando respaldos con más de $dias_retencion días..."
-    find "$BACKUP_DIR" -name "respaldo_*.tar.*" -type f -mtime "+$dias_retencion" -delete
-
-    registrar "respaldo.sh" "MANTENIMIENTO: Respaldos antiguos eliminados (retencion: $dias_retencion días)"
-}
-
-# 9. Obtener información del respaldo
-obtener_info_respaldo() {
-    local archivo_respaldo="$1"
-    local tamano
-    local tamano_legible
-    local fecha
-
-    tamano=$(stat -f%z "$archivo_respaldo" 2>/dev/null || stat -c%s "$archivo_respaldo" 2>/dev/null)
-    tamano_legible=$(numfmt --to=iec-i --suffix=B "$tamano" 2>/dev/null || echo "${tamano} bytes")
-    fecha=$(stat -f"%Sm -U" "$archivo_respaldo" 2>/dev/null || stat -c%y "$archivo_respaldo" 2>/dev/null | cut -d' ' -f1-2)
-
-    echo "Archivo: $(basename "$archivo_respaldo")"
-    echo "Tamaño: $tamano_legible"
-    echo "Fecha: $fecha"
-    echo "Ruta: $archivo_respaldo"
-}
-
-# ============================================================================
-# EJECUCIÓN PRINCIPAL
-# ============================================================================
-
-registrar "respaldo.sh" "INICIO: Proceso de respaldo iniciado"
-
-# Determinar directorios a respaldar
-DIRS_RESPALDO_FINAL="$DIRS_RESPALDO"
-if [ $# -gt 0 ]; then
-    DIRS_RESPALDO_FINAL="$@"
-fi
-
-echo "╔════════════════════════════════════════╗"
-echo "║     GESTOR DE RESPALDOS AUTOMÁTICO      ║"
-echo "╚════════════════════════════════════════╝"
-echo ""
-
-# Validar directorios
-validar_directorios "$DIRS_RESPALDO_FINAL"
-
-# Crear respaldo
-if ! ARCHIVO_RESPALDO=$(crear_respaldo "$DIRS_RESPALDO_FINAL"); then
-    echo "Fallo al crear el respaldo"
-    registrar "respaldo.sh" "ERROR: No se pudo completar el respaldo"
+if [ "$?" -ne 0 ]; then
+    echo "Error: no se pudieron crear las carpetas de trabajo."
     exit 1
 fi
 
-echo ""
-
-# Verificar integridad
-if verificar_respaldo "$ARCHIVO_RESPALDO"; then
-    echo ""
-    echo "📦 DETALLES DEL RESPALDO:"
-    obtener_info_respaldo "$ARCHIVO_RESPALDO"
-
-    # Enviar notificación por Telegram
-    MSG="✓ Respaldo completado correctamente
-Archivo: $(basename "$ARCHIVO_RESPALDO")
-Tamaño: $(stat -f%z "$ARCHIVO_RESPALDO" 2>/dev/null || stat -c%s "$ARCHIVO_RESPALDO" 2>/dev/null) bytes
-Fecha: $(date +"${TIMESTAMP_FORMAT}")"
-
-    enviar_telegram "Respaldo Completado" "$MSG" || true
-    registrar "respaldo.sh" "COMPLETADO: Respaldo exitoso - $ARCHIVO_RESPALDO"
-
-    # Limpiar respaldos antiguos
-    limpiar_respaldos_antiguos
-
-    exit 0
+# si el usuario manda directorios se usan esos
+# si no manda parametros se usan los directorios de config.txt
+if [ "$#" -gt 0 ]; then
+    directorios="$*"
 else
-    echo "Fallo en la verificación del respaldo"
-    registrar "respaldo.sh" "ERROR: Verificación de respaldo fallida"
+    directorios="$DIRS_RESPALDO"
+fi
+
+# se valida que los directorios existan
+for directorio in $directorios
+do
+    if [ ! -d "$directorio" ]; then
+        echo "Error: el directorio '$directorio' no existe."
+        exit 1
+    fi
+done
+
+# se prepara el nombre del respaldo
+fecha=$(date '+%Y%m%d_%H%M%S')
+nombre="respaldo_$fecha.tar.gz"
+archivo="$BACKUP_DIR/$nombre"
+
+echo "creando respaldo..."
+echo "destino: $archivo"
+
+# se crea el respaldo comprimido
+tar -czf "$archivo" $directorios 2>/dev/null
+
+# se valida que tar haya funcionado
+if [ "$?" -ne 0 ]; then
+    echo "Error: no se pudo crear el respaldo."
+    registrar "respaldo.sh" "error al crear respaldo"
     exit 1
 fi
+
+# se verifica que el respaldo se pueda leer
+tar -tzf "$archivo" > /dev/null 2>&1
+
+if [ "$?" -ne 0 ]; then
+    echo "Error: el respaldo se creo pero no paso la verificacion."
+    registrar "respaldo.sh" "respaldo no paso verificacion"
+    exit 1
+fi
+
+# se valida que el archivo exista y tenga tamaño mayor a cero
+if [ ! -s "$archivo" ]; then
+    echo "Error: el respaldo esta vacio o no existe."
+    registrar "respaldo.sh" "respaldo vacio o inexistente"
+    exit 1
+fi
+
+# se eliminan respaldos antiguos segun la retencion de config.txt
+if [ -n "$RESPALDO_RETENCION" ]; then
+    find "$BACKUP_DIR" -name "respaldo_*.tar.gz" -type f -mtime +"$RESPALDO_RETENCION" -delete 2>/dev/null
+fi
+
+tamanio=$(du -h "$archivo" | awk '{print $1}')
+fecha2=$(date '+%Y-%m-%d %H:%M:%S')
+
+registrar "respaldo.sh" "respaldo generado $archivo tamaño $tamanio"
+enviar_telegram "Respaldo generado" "Archivo: $archivo
+Tamanio: $tamanio
+Fecha: $fecha2" || true
+
+echo "respaldo generado correctamente"
+echo "archivo: $archivo"

@@ -1,161 +1,319 @@
-# Sistema Automatizado de Gestión de Servicios con Bash
+# Sistema Automatizado de Servicios con Bash
 
-Proyecto modular para administrar y supervisar Zorin OS Pro y otros sistemas
-GNU/Linux basados en Ubuntu mediante scripts Bash. Centraliza configuración,
-logs, reportes y notificaciones opcionales por Telegram.
+Proyecto integrador de Bash para administrar y supervisar equipos GNU/Linux.
+El sistema usa scripts independientes, un archivo compartido `config.txt`,
+logs, reportes y alertas por Telegram.
 
-## Módulos
+## Scripts
 
-| Script | Función |
+| Script | Funcion |
 | --- | --- |
-| `usuarios.sh` | Crear, modificar, listar y eliminar usuarios. |
-| `respaldo.sh` | Crear respaldos comprimidos y verificar su integridad. |
-| `monitoreo.sh` | Medir CPU, memoria y disco con umbrales configurables. |
-| `servicios.sh` | Verificar servicios e intentar reiniciarlos. |
-| `remoto.sh` | Copiar y ejecutar scripts en hosts mediante SSH. |
-| `diagnostico.sh` | Recopilar datos básicos en una prueba remota. |
-| `red.sh` | Revisar conectividad y puertos críticos. |
-| `inventario.sh` | Generar un inventario de hardware y software. |
+| `usuarios.sh` | Crear, eliminar, modificar y listar usuarios. |
+| `respaldo.sh` | Crear respaldos comprimidos con `tar` y verificar que se generaron. |
+| `monitoreo.sh` | Revisar CPU, disco y memoria con umbrales configurables. |
+| `servicios.sh` | Revisar servicios y tratar de reiniciar los que esten caidos. |
+| `remoto.sh` | Copiar y ejecutar scripts en una maquina remota por SSH. |
+| `red.sh` | Revisar ping, puertos y clasificar hosts. |
+| `inventario.sh` | Generar inventario de hardware y software. |
+| `diagnostico.sh` | Mostrar diagnostico basico, usado para pruebas remotas. |
+| `configurar-telegram.sh` | Guardar token y chat id del bot fuera del repositorio. |
+| `test.sh` | Ejecutar pruebas seguras del proyecto. |
 
-## Requisitos
+## Configuracion
 
-- GNU/Linux con Bash 4 o superior.
-- Comandos base: `awk`, `sed`, `tar`, `find`, `df`, `free` y `ps`.
-- `curl` para notificaciones por Telegram.
-- `ping`, `nc` o `nmap` para las pruebas de red.
-- `ssh`, `scp` y `timeout` para la ejecución remota.
-- Permisos de administrador para `usuarios.sh` y para reiniciar servicios.
-
-En Zorin OS Pro:
+Los parametros principales estan en:
 
 ```bash
-sudo apt update
-sudo apt install bash curl openssh-client tar gzip bzip2 xz-utils iputils-ping netcat-openbsd
+config.txt
 ```
 
-## Configuración
+Ahí se configuran:
 
-Edita `config.txt` para ajustar rutas, umbrales, servicios, hosts y respaldos.
-Las credenciales de Telegram se cargan desde
-`/etc/sistema-servicios/telegram.env`, fuera del repositorio.
+- rutas de logs, reportes, respaldos e inventarios
+- umbrales de monitoreo
+- servicios a revisar
+- hosts y puertos de red
+- usuario remoto SSH
+- archivo de credenciales de Telegram
+
+Por defecto el proyecto trabaja sin root y guarda archivos en carpetas del usuario:
 
 ```bash
-sudo ./configurar-telegram.sh
+$HOME/.local/state/sistema-servicios/logs
+$HOME/.local/state/sistema-servicios/reportes
+$HOME/.local/state/sistema-servicios/inventarios
+$HOME/respaldos/sistema-servicios
 ```
 
-El configurador oculta el token, valida el bot y envía un mensaje de prueba.
-También es posible usar variables de entorno para una ejecución puntual:
+## Telegram
+
+Configura el bot con:
 
 ```bash
-export TELEGRAM_ENABLED=true
-export TELEGRAM_BOT_TOKEN="token_del_bot"
-export TELEGRAM_CHAT_ID="id_del_chat"
-./monitoreo.sh
+bash configurar-telegram.sh
 ```
 
-Nunca guardes ni publiques tokens reales en el repositorio o en capturas.
+El script pide:
 
-## Pruebas locales
+```text
+Token del bot
+Chat ID
+```
 
-Las pruebas usan directorios temporales y no crean usuarios, no reinician
-servicios y no se conectan a hosts remotos:
+Para grupo de Telegram, el `Chat ID` normalmente es negativo, por ejemplo:
+
+```text
+-5525562000
+```
+
+Las credenciales se guardan fuera del repositorio:
+
+```bash
+$HOME/.config/sistema-servicios/telegram.env
+```
+
+Prueba rapida de alerta:
+
+```bash
+bash monitoreo.sh -c 0 -d 0 -m 0
+```
+
+## Uso De Scripts
+
+### usuarios.sh
+
+Muestra un menu:
+
+```bash
+bash usuarios.sh
+```
+
+Opciones:
+
+```text
+1. crear usuario
+2. eliminar usuario
+3. modificar shell de usuario
+4. listar usuarios
+```
+
+El script no necesita abrirse como root. Si la accion requiere permisos, usa
+`sudo` solamente en el comando necesario.
+
+### respaldo.sh
+
+Usa los directorios de `config.txt`:
+
+```bash
+bash respaldo.sh
+```
+
+O recibe directorios:
+
+```bash
+bash respaldo.sh /home/michael/Documentos
+```
+
+Genera respaldos en:
+
+```bash
+$HOME/respaldos/sistema-servicios
+```
+
+### monitoreo.sh
+
+Usa umbrales de `config.txt`:
+
+```bash
+bash monitoreo.sh
+```
+
+Con umbrales personalizados:
+
+```bash
+bash monitoreo.sh -c 80 -d 85 -m 90
+```
+
+Para forzar alerta en la demostracion:
+
+```bash
+bash monitoreo.sh -c 0 -d 0 -m 0
+```
+
+### servicios.sh
+
+Usa servicios de `config.txt`:
+
+```bash
+bash servicios.sh
+```
+
+O recibe servicios:
+
+```bash
+bash servicios.sh ssh nginx
+```
+
+Si un servicio esta caido, intenta reiniciarlo con root o `sudo`.
+
+### red.sh
+
+Usa hosts y puertos de `config.txt`:
+
+```bash
+bash red.sh
+```
+
+Con archivo externo y puertos:
+
+```bash
+bash red.sh -f hosts.txt -p "22 80 443"
+```
+
+Clasifica hosts como accesibles, parciales o sin respuesta.
+
+### inventario.sh
+
+Genera inventario:
+
+```bash
+bash inventario.sh
+```
+
+El reporte queda en:
+
+```bash
+$HOME/.local/state/sistema-servicios/inventarios
+```
+
+Tambien envia resumen por Telegram si esta configurado.
+
+### remoto.sh
+
+Ejecuta un script en hosts remotos.
+
+Archivo `hosts.txt`:
+
+```text
+192.168.1.72
+```
+
+Ejecucion:
+
+```bash
+bash remoto.sh diagnostico.sh hosts.txt
+```
+
+El script copia temporalmente el archivo a la VM:
+
+```bash
+/tmp/diagnostico.sh
+```
+
+Lo ejecuta, captura la salida y luego lo elimina.
+
+Los reportes quedan en:
+
+```bash
+$HOME/.local/state/sistema-servicios/reportes
+```
+
+### diagnostico.sh
+
+Se puede ejecutar local:
+
+```bash
+bash diagnostico.sh
+```
+
+Tambien sirve como script de prueba para `remoto.sh`.
+
+## Cron
+
+El archivo `crontab.txt` trae ejemplos para programar:
+
+- respaldos diarios
+- monitoreo cada 5 minutos
+- revision de servicios
+- monitoreo de red
+- inventarios periodicos
+- diagnostico remoto
+
+Para usarlo:
+
+```bash
+crontab -e
+```
+
+y copia las lineas que necesites.
+
+## Pruebas
+
+Ejecuta:
 
 ```bash
 chmod +x ./*.sh
-./test.sh
+bash test.sh
 ```
 
-## Instalación
+Las pruebas son seguras:
 
-```bash
-./setup.sh --check
-sudo ./setup.sh
-```
+- no crean usuarios reales
+- no reinician servicios reales
+- no hacen SSH real
+- usan carpetas temporales
 
-`--check` valida Zorin OS y las dependencias sin modificar el sistema. La
-instalación copia el proyecto a `/opt/sistema-servicios`, crea el grupo
-`sistema-servicios` y prepara:
+## Prueba Real Con La VM
 
-- `/var/log/sistema-servicios`
-- `/var/log/reportes`
-- `/var/backups/sistema-servicios`
-
-Después de instalar:
-
-```bash
-sudo nano /opt/sistema-servicios/config.txt
-sudo /opt/sistema-servicios/configurar-telegram.sh
-/opt/sistema-servicios/monitoreo.sh
-```
-
-## Uso
-
-```bash
-# Monitoreo con umbrales personalizados
-./monitoreo.sh -c 80 -d 85 -m 90
-
-# Respaldo de directorios específicos
-./respaldo.sh /home/usuario/documentos /etc
-
-# Supervisión de servicios
-sudo ./servicios.sh nginx ssh
-
-# Monitoreo de red
-./red.sh -f hosts.txt -p "22 80 443"
-
-# Inventario del equipo
-./inventario.sh
-
-# Ejecución remota
-./remoto.sh ./diagnostico.sh hosts.txt
-
-# Gestión interactiva de usuarios
-sudo ./usuarios.sh
-```
-
-La creación de usuarios exige nombres válidos, contraseña de al menos ocho
-caracteres y confirmación. La ejecución remota utiliza autenticación SSH por
-llave y envía un resumen a Telegram.
-
-## Automatización
-
-`crontab.txt` contiene ejemplos para respaldos, monitoreo, servicios, red e
-inventarios. Revisa las rutas antes de copiarlas con `crontab -e`.
-
-El documento `MANUAL_TECNICO.pdf` contiene la instalación, configuración,
-estructura de módulos, casos de prueba y guía para la demostración final.
-`PRESENTACION_FINAL.pdf` sirve como apoyo para la exposición del equipo.
-
-## Estructura
+La VM usada en pruebas tiene:
 
 ```text
-.
-├── config.txt
-├── setup.sh
-├── configurar-telegram.sh
-├── test.sh
-├── usuarios.sh
-├── respaldo.sh
-├── monitoreo.sh
-├── servicios.sh
-├── remoto.sh
-├── diagnostico.sh
-├── red.sh
-├── inventario.sh
-├── hosts.txt
-├── crontab.txt
-├── MANUAL_TECNICO.pdf
-└── PRESENTACION_FINAL.pdf
+IP: 192.168.1.72
+Usuario: michael
+```
+
+Primero se valida SSH:
+
+```bash
+ssh -o StrictHostKeyChecking=accept-new michael@192.168.1.72
+```
+
+Despues se ejecuta:
+
+```bash
+bash remoto.sh diagnostico.sh hosts.txt
+```
+
+## Archivos Generados
+
+Logs:
+
+```bash
+$HOME/.local/state/sistema-servicios/logs
+```
+
+Reportes remotos:
+
+```bash
+$HOME/.local/state/sistema-servicios/reportes
+```
+
+Inventarios:
+
+```bash
+$HOME/.local/state/sistema-servicios/inventarios
+```
+
+Respaldos:
+
+```bash
+$HOME/respaldos/sistema-servicios
 ```
 
 ## Seguridad
 
-- Ejecuta cada módulo con los permisos mínimos necesarios.
-- Mantén `/etc/sistema-servicios/telegram.env` con permisos restrictivos.
-- Usa autenticación por llaves para SSH.
-- Revisa `hosts.txt` antes de una ejecución remota.
-- Conserva Telegram deshabilitado mientras no esté configurado.
-
-## Licencia
-
-Consulta `LICENSE`.
+- No se guardan tokens reales dentro de `config.txt`.
+- Telegram usa `$HOME/.config/sistema-servicios/telegram.env`.
+- Los scripts no se ejecutan como root completos.
+- Solo usan `sudo` cuando una accion realmente lo necesita.
+- SSH usa llaves y acepta llaves nuevas con `StrictHostKeyChecking=accept-new`.

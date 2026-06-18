@@ -1,327 +1,188 @@
 #!/bin/bash
-# remoto.sh — Ejecución remota de scripts en múltiples hosts
-# Uso: ./remoto.sh <script_local> [archivo_hosts]
-# Copia un script a máquinas remotas, lo ejecuta y genera reporte
+# este script copia y ejecuta un script en equipos remotos por ssh
+# usa un archivo de hosts para saber a que equipos conectarse
 
-# 1. INICIALIZACIÓN Y VALIDACIONES
-CONFIG_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.txt"
+# se busca y carga config.txt
+ruta="$(cd "$(dirname "$0")" && pwd)"
+config="$ruta/config.txt"
 
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Error: No se encontró config.txt"
+if [ ! -f "$config" ]; then
+    echo "Error: no se encontro config.txt"
     exit 1
 fi
 
-source "$CONFIG_FILE"
+source "$config"
 validar_config || exit 1
 
-# 2. VALIDAR ARGUMENTOS
-if [ $# -lt 1 ]; then
+# si se interrumpe la ejecucion remota se sale de forma limpia
+trap 'echo "ejecucion remota interrumpida"; exit 1' SIGINT SIGTERM
+
+# se valida que se reciba minimo el script local
+if [ "$#" -lt 1 ]; then
     echo "Uso: $0 <script_local> [archivo_hosts]"
-    echo "Ejemplo: $0 ./diagnostico.sh /opt/sistema-servicios/hosts.txt"
     exit 1
 fi
 
-SCRIPT_LOCAL="$1"
-ARCHIVO_HOSTS="${2:-$HOSTS_REMOTOS_FILE}"
+# se guardan los argumentos en variables
+script="$1"
+archivo="${2:-$HOSTS_REMOTOS_FILE}"
 
-# 3. VALIDAR QUE EL SCRIPT LOCAL EXISTE
-if [ ! -f "$SCRIPT_LOCAL" ]; then
-    echo "Error: Script local no existe: $SCRIPT_LOCAL"
+# se valida que el script local exista
+if [ ! -f "$script" ]; then
+    echo "Error: el script '$script' no existe."
     exit 1
 fi
 
-# 4. CREAR DIRECTORIO DE LOGS Y REPORTES
-mkdir -p "$LOG_DIR" 2>/dev/null || {
-    echo "Error: No se pudo crear el directorio de logs: $LOG_DIR"
+# se valida el archivo de hosts
+if [ ! -f "$archivo" ] || [ ! -s "$archivo" ]; then
+    echo "Error: el archivo de hosts no existe o esta vacio."
     exit 1
-}
-
-if ! mkdir -p "$REPORTS_DIR" 2>/dev/null ||
-   [ ! -w "$REPORTS_DIR" ]; then
-    REPORTS_DIR="${HOME}/.local/state/sistema-servicios/reportes"
-    mkdir -p "$REPORTS_DIR" || {
-        echo "Error: No se pudo crear el directorio de reportes: $REPORTS_DIR"
-        exit 1
-    }
-    echo "Advertencia: Los reportes se guardarán en $REPORTS_DIR"
 fi
 
-# 5. VARIABLES DE TRABAJO
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-NOMBRE_SCRIPT=$(basename "$SCRIPT_LOCAL")
-REPORTE_GENERAL="${REPORTS_DIR}/remoto_${TIMESTAMP}.txt"
-SCRIPT_REMOTO="/tmp/${NOMBRE_SCRIPT}"
+# se crean carpetas necesarias
+mkdir -p "$LOG_DIR" "$REPORTS_DIR"
 
-# 6. TRAP PARA MANEJO DE SEÑALES
-trap 'echo "Ejecución remota interrumpida"; exit 1' SIGINT SIGTERM
+if [ "$?" -ne 0 ]; then
+    echo "Error: no se pudieron crear las carpetas de trabajo."
+    exit 1
+fi
 
-# ============================================================================
-# FUNCIONES
-# ============================================================================
+# se preparan variables de trabajo
+fecha=$(date '+%Y%m%d_%H%M%S')
+fecha2=$(date '+%Y-%m-%d %H:%M:%S')
+nombre=$(basename "$script")
+script2="/tmp/$nombre"
+reporte="$REPORTS_DIR/remoto_$fecha.txt"
 
-# 7. Verificar conexión SSH no interactiva
-verificar_conexion_ssh() {
-    local host="$1"
-    local usuario="$2"
+# se inicia el reporte
+{
+    echo "reporte de ejecucion remota"
+    echo "fecha: $fecha2"
+    echo "script local: $script"
+    echo "archivo de hosts: $archivo"
+    echo "usuario remoto: $USUARIO_REMOTO"
+    echo "puerto ssh: $PUERTO_SSH"
+    echo "script temporal en la vm: $script2"
+    echo ""
+    echo "resultado por servidor"
+    echo "----------------------------------------"
+} > "$reporte"
 
-    timeout "$TIMEOUT_SSH" ssh -p "$PUERTO_SSH" \
-        -o BatchMode=yes \
-        -o ConnectTimeout=10 \
-        -o StrictHostKeyChecking=accept-new \
-        "${usuario}@${host}" "exit 0" &>/dev/null
-}
+echo "iniciando ejecucion remota"
 
-# 8. Validar archivo de hosts
-validar_archivo_hosts() {
-    local archivo="$1"
+# se lee cada host del archivo
+while IFS= read -r host
+do
+    [ -z "$host" ] && continue
+    echo "$host" | grep -q "^[[:space:]]*#" && continue
 
-    if [ ! -f "$archivo" ]; then
-        echo "Error: Archivo de hosts no existe: $archivo"
-        registrar "remoto.sh" "ERROR: Archivo de hosts no encontrado: $archivo"
-        exit 1
-    fi
+    echo "host: $host"
 
-    if [ ! -s "$archivo" ]; then
-        echo "Error: Archivo de hosts está vacío: $archivo"
-        registrar "remoto.sh" "ERROR: Archivo de hosts vacío: $archivo"
-        exit 1
-    fi
-}
-
-# 9. Copiar script a máquina remota
-copiar_script_remoto() {
-    local host="$1"
-    local script="$2"
-    local usuario="$3"
-    local salida_scp
-
-    echo "[*] Copiando script a $host..."
-
-    # Usar scp con timeout
-    salida_scp=$(timeout "$TIMEOUT_SSH" scp -P "$PUERTO_SSH" \
-        -o BatchMode=yes \
-        -o ConnectTimeout=10 \
-        -o StrictHostKeyChecking=accept-new \
-        "$script" "${usuario}@${host}:${SCRIPT_REMOTO}" 2>&1)
-
-    if [ $? -eq 0 ]; then
-        echo "✓ Script copiado a $host"
-        return 0
+    # si el host ya trae usuario@ip se usa asi
+    # si solo trae ip se agrega el usuario de config.txt
+    if echo "$host" | grep -q "@"; then
+        servidor="$host"
     else
-        echo "✗ Fallo al copiar script a $host"
-        [ -n "$salida_scp" ] && echo "  Detalle: $salida_scp"
-        return 1
-    fi
-}
-
-# 10. Ejecutar script en máquina remota
-ejecutar_script_remoto() {
-    local host="$1"
-    local usuario="$2"
-    local script="$3"
-
-    echo "[*] Ejecutando script en $host..."
-
-    # Ejecutar por SSH y capturar salida
-    local salida
-    salida=$(timeout "$TIMEOUT_SSH" ssh -p "$PUERTO_SSH" \
-        -o BatchMode=yes \
-        -o ConnectTimeout=10 \
-        -o StrictHostKeyChecking=accept-new \
-        "${usuario}@${host}" \
-        "bash '$script' 2>&1" 2>&1)
-
-    local codigo_salida=$?
-
-    echo "$salida"
-    return $codigo_salida
-}
-
-# 11. Limpiar script en máquina remota
-limpiar_script_remoto() {
-    local host="$1"
-    local usuario="$2"
-    local script="$3"
-
-    timeout "$TIMEOUT_SSH" ssh -p "$PUERTO_SSH" \
-        -o BatchMode=yes \
-        -o ConnectTimeout=10 \
-        -o StrictHostKeyChecking=accept-new \
-        "${usuario}@${host}" \
-        "rm -f '$script'" 2>/dev/null
-}
-
-# 12. Generar reporte individual por host
-generar_reporte_host() {
-    local host="$1"
-    local usuario="$2"
-    local script_local="$3"
-    local salida_ejecucion="$4"
-    local codigo_salida="$5"
-
-    local timestamp_reporte=$(date +"${TIMESTAMP_FORMAT}")
-    local estado="✓ ÉXITO"
-
-    if [ $codigo_salida -ne 0 ]; then
-        estado="✗ ERROR (código: $codigo_salida)"
+        servidor="${USUARIO_REMOTO}@${host}"
     fi
 
-    # Crear directorio individual para host si no existe
-    local dir_host="${REPORTS_DIR}/${host}_${TIMESTAMP}"
-    mkdir -p "$dir_host"
-
-    # Generar reporte individual
-    local reporte_host="${dir_host}/ejecucion.txt"
     {
-        echo "════════════════════════════════════════════════════"
-        echo "REPORTE DE EJECUCIÓN REMOTA"
-        echo "════════════════════════════════════════════════════"
         echo ""
-        echo "Host: $host"
-        echo "Usuario: $usuario"
-        echo "Script: $(basename "$script_local")"
-        echo "Fecha: $timestamp_reporte"
-        echo "Estado: $estado"
+        echo "servidor: $host"
+        echo "conexion usada: $servidor"
+    } >> "$reporte"
+
+    # se crea un reporte individual por cada host
+    host_limpio=$(echo "$host" | tr '/:@' '___')
+    reporte_host="$REPORTS_DIR/remoto_${host_limpio}_$fecha.txt"
+    {
+        echo "reporte individual de ejecucion remota"
+        echo "fecha: $fecha2"
+        echo "servidor: $host"
+        echo "conexion usada: $servidor"
+        echo "script local: $script"
+        echo "script temporal: $script2"
         echo ""
-        echo "────────────────────────────────────────────────────"
-        echo "SALIDA DE EJECUCIÓN:"
-        echo "────────────────────────────────────────────────────"
-        echo "$salida_ejecucion"
-        echo ""
-        echo "════════════════════════════════════════════════════"
     } > "$reporte_host"
 
-    echo "$dir_host"
-}
+    # se prueba conexion ssh
+    echo "probando conexion ssh..."
+    timeout "$TIMEOUT_SSH" ssh -p "$PUERTO_SSH" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "$servidor" "exit 0" > /dev/null 2>&1
 
-# ============================================================================
-# EJECUCIÓN PRINCIPAL
-# ============================================================================
-
-echo "╔════════════════════════════════════════╗"
-echo "║   EJECUTOR DE SCRIPTS REMOTOS           ║"
-echo "╚════════════════════════════════════════╝"
-echo ""
-
-registrar "remoto.sh" "INICIO: Ejecución remota iniciada - Script: $NOMBRE_SCRIPT"
-
-# Validar archivo de hosts
-validar_archivo_hosts "$ARCHIVO_HOSTS"
-
-# Inicializar reporte general
-{
-    echo "════════════════════════════════════════════════════"
-    echo "REPORTE GENERAL DE EJECUCIÓN REMOTA"
-    echo "════════════════════════════════════════════════════"
-    echo "Timestamp: $(date +"${TIMESTAMP_FORMAT}")"
-    echo "Script: $NOMBRE_SCRIPT"
-    echo "Archivo de hosts: $ARCHIVO_HOSTS"
-    echo ""
-} > "$REPORTE_GENERAL"
-
-# Procesar cada host
-CONTADOR_EXITO=0
-CONTADOR_FALLO=0
-
-while IFS= read -r linea || [ -n "$linea" ]; do
-    # Ignorar líneas vacías y comentarios
-    [[ "$linea" =~ ^[[:space:]]*$ ]] && continue
-    [[ "$linea" =~ ^[[:space:]]*# ]] && continue
-
-    # Parsear línea (formato: host o usuario@host)
-    if [[ "$linea" == *"@"* ]]; then
-        HOST=$(echo "$linea" | cut -d'@' -f2)
-        USUARIO=$(echo "$linea" | cut -d'@' -f1)
-    else
-        HOST="$linea"
-        USUARIO="$USUARIO_REMOTO"
-    fi
-
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Procesando host: $HOST (usuario: $USUARIO)"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-
-    # Verificar autenticación por llave antes de copiar
-    if ! verificar_conexion_ssh "$HOST" "$USUARIO"; then
-        echo "✗ No hay acceso SSH no interactivo a ${USUARIO}@${HOST}"
-        echo "  Configura una llave con: ssh-copy-id ${USUARIO}@${HOST}"
-        echo "✗ $HOST: Autenticación SSH por llave no disponible" >> "$REPORTE_GENERAL"
-        CONTADOR_FALLO=$((CONTADOR_FALLO + 1))
-        registrar "remoto.sh" "FALLO: Autenticación SSH por llave no disponible en $HOST"
-        echo ""
+    if [ "$?" -ne 0 ]; then
+        echo "no se pudo conectar por ssh"
+        {
+            echo "estado: error de conexion ssh"
+            echo "----------------------------------------"
+        } >> "$reporte"
+        echo "estado: error de conexion ssh" >> "$reporte_host"
         continue
     fi
 
-    # Copiar script
-    if copiar_script_remoto "$HOST" "$SCRIPT_LOCAL" "$USUARIO"; then
+    echo "conexion ssh correcta"
+    echo "conexion ssh: correcta" >> "$reporte"
+    echo "conexion ssh: correcta" >> "$reporte_host"
 
-        # Ejecutar script
-        SALIDA=$(ejecutar_script_remoto "$HOST" "$USUARIO" "$SCRIPT_REMOTO")
-        CODIGO_SALIDA=$?
+    # se copia el script
+    echo "copiando script..."
+    scp -P "$PUERTO_SSH" -o StrictHostKeyChecking=accept-new "$script" "$servidor:$script2" > /dev/null 2>&1
 
-        echo "$SALIDA"
-        echo ""
-
-        # Generar reporte individual
-        DIR_REPORTE=$(generar_reporte_host "$HOST" "$USUARIO" "$SCRIPT_LOCAL" "$SALIDA" "$CODIGO_SALIDA")
-
-        # Actualizar reporte general
-        if [ $CODIGO_SALIDA -eq 0 ]; then
-            echo "✓ $HOST: ÉXITO (Reporte: $DIR_REPORTE)" >> "$REPORTE_GENERAL"
-            CONTADOR_EXITO=$((CONTADOR_EXITO + 1))
-            registrar "remoto.sh" "EXITO: Ejecución en $HOST completada"
-        else
-            echo "✗ $HOST: ERROR (código: $CODIGO_SALIDA, Reporte: $DIR_REPORTE)" >> "$REPORTE_GENERAL"
-            CONTADOR_FALLO=$((CONTADOR_FALLO + 1))
-            registrar "remoto.sh" "ERROR: Fallo en ejecución remota en $HOST"
-        fi
-
-        # Limpiar script remoto
-        limpiar_script_remoto "$HOST" "$USUARIO" "$SCRIPT_REMOTO"
-    else
-        echo "✗ $HOST: No se pudo conectar" >> "$REPORTE_GENERAL"
-        CONTADOR_FALLO=$((CONTADOR_FALLO + 1))
-        registrar "remoto.sh" "FALLO: No se pudo conectar a $HOST"
+    if [ "$?" -ne 0 ]; then
+        echo "no se pudo copiar el script"
+        {
+            echo "estado: error al copiar el script"
+            echo "----------------------------------------"
+        } >> "$reporte"
+        echo "estado: error al copiar el script" >> "$reporte_host"
+        continue
     fi
 
-done < "$ARCHIVO_HOSTS"
+    echo "script copiado correctamente"
+    echo "copia del script: correcta" >> "$reporte"
+    echo "copia del script: correcta" >> "$reporte_host"
 
-# Finalizar reporte general
-{
+    # se ejecuta el script remoto
+    echo "ejecutando script remoto..."
+    salida=$(ssh -p "$PUERTO_SSH" -o StrictHostKeyChecking=accept-new "$servidor" "bash '$script2'" 2>&1)
+    codigo="$?"
+
+    echo "$salida"
+
+    {
+        echo ""
+        echo "salida del script:"
+        echo "----------------------------------------"
+        echo "$salida"
+        echo "----------------------------------------"
+    } >> "$reporte"
+
+    {
+        echo ""
+        echo "salida del script:"
+        echo "----------------------------------------"
+        echo "$salida"
+        echo "----------------------------------------"
+    } >> "$reporte_host"
+
+    if [ "$codigo" -eq 0 ]; then
+        echo "estado: ejecutado correctamente" >> "$reporte"
+        echo "estado: ejecutado correctamente" >> "$reporte_host"
+        registrar "remoto.sh" "$host ejecucion correcta"
+    else
+        echo "estado: error al ejecutar" >> "$reporte"
+        echo "estado: error al ejecutar" >> "$reporte_host"
+        registrar "remoto.sh" "$host error al ejecutar"
+    fi
+
+    # se borra el script remoto
+    ssh -p "$PUERTO_SSH" -o StrictHostKeyChecking=accept-new "$servidor" "rm -f '$script2'" > /dev/null 2>&1
+    echo "limpieza: script temporal eliminado" >> "$reporte"
+    echo "limpieza: script temporal eliminado" >> "$reporte_host"
+    echo "----------------------------------------" >> "$reporte"
     echo ""
-    echo "════════════════════════════════════════════════════"
-    echo "RESUMEN"
-    echo "════════════════════════════════════════════════════"
-    echo "Hosts procesados exitosamente: $CONTADOR_EXITO"
-    echo "Hosts con errores: $CONTADOR_FALLO"
-    echo "Total: $((CONTADOR_EXITO + CONTADOR_FALLO))"
-    echo ""
-    echo "Reportes individuales en: $REPORTS_DIR"
-    echo "════════════════════════════════════════════════════"
-} >> "$REPORTE_GENERAL"
+done < "$archivo"
 
-# Mostrar resumen
-echo ""
-echo "╔════════════════════════════════════════╗"
-echo "║            EJECUCIÓN COMPLETADA        ║"
-echo "╚════════════════════════════════════════╝"
-cat "$REPORTE_GENERAL" | tail -20
+enviar_telegram "Ejecucion remota" "Reporte: $reporte" || true
 
-registrar "remoto.sh" "CIERRE: Ejecución remota finalizada - Éxito: $CONTADOR_EXITO, Fallo: $CONTADOR_FALLO"
-
-if [ "$CONTADOR_FALLO" -eq 0 ]; then
-    TITULO_TELEGRAM="Ejecución Remota Completada"
-else
-    TITULO_TELEGRAM="Ejecución Remota con Errores"
-fi
-
-MSG="Script: ${NOMBRE_SCRIPT}
-Hosts exitosos: ${CONTADOR_EXITO}
-Hosts con errores: ${CONTADOR_FALLO}
-Total: $((CONTADOR_EXITO + CONTADOR_FALLO))
-Reporte: ${REPORTE_GENERAL}"
-
-enviar_telegram "$TITULO_TELEGRAM" "$MSG" || true
-
-exit 0
+echo "ejecucion remota finalizada"
+echo "reporte: $reporte"
