@@ -85,35 +85,40 @@ echo ""
 
 alerta="no"
 mensaje_alerta=""
+estado_cpu="normal"
+estado_disco="normal"
+estado_memoria="normal"
 
 # se valida cpu
 if awk -v valor="$cpu" -v limite="$limite_cpu" 'BEGIN {exit !(valor > limite)}'; then
     alerta="si"
-    mensaje_alerta="${mensaje_alerta}CPU alta: $cpu% limite $limite_cpu%\n"
+    estado_cpu="alerta"
 fi
 
 # se valida disco
 if [ "$disco" -gt "$limite_disco" ]; then
     alerta="si"
-    mensaje_alerta="${mensaje_alerta}Disco alto: $disco% limite $limite_disco%\n"
+    estado_disco="alerta"
 fi
 
 # se valida memoria
 if awk -v valor="$memoria" -v limite="$limite_memoria" 'BEGIN {exit !(valor > limite)}'; then
     alerta="si"
-    mensaje_alerta="${mensaje_alerta}Memoria alta: $memoria% limite $limite_memoria%\n"
+    estado_memoria="alerta"
 fi
+
+# se prepara el mensaje con todos los valores revisados
+mensaje_alerta="CPU: $cpu% limite $limite_cpu% estado $estado_cpu
+Disco: $disco% limite $limite_disco% estado $estado_disco
+Memoria: $memoria% limite $limite_memoria% estado $estado_memoria"
 
 # se muestra el resultado final
 if [ "$alerta" = "si" ]; then
     echo "alertas encontradas:"
-    printf "%b" "$mensaje_alerta"
-
-    # se convierte el texto para que telegram respete los saltos de linea
-    mensaje=$(printf "%b" "$mensaje_alerta")
+    echo "$mensaje_alerta"
 
     # se manda la alerta por telegram
-    enviar_telegram "Alerta de monitoreo" "$mensaje"
+    enviar_telegram "Alerta de monitoreo" "$mensaje_alerta"
 
     if [ "$?" -eq 0 ]; then
         echo "alerta enviada por telegram"
