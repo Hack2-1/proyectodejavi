@@ -1,93 +1,112 @@
 #!/bin/bash
-# este script crea respaldos comprimidos
-# puede recibir directorios por parametro o usar los de config.txt
+# Script para generar respaldos comprimidos de directorios especificados.
+# Cumple con validación de tamaño, rotación, logs y notificaciones del Proyecto Integrador.
 
-# se busca y carga config.txt
-ruta="$(cd "$(dirname "$0")" && pwd)"
-config="$ruta/config.txt"
+#Extrae el directorio en donde estamos situados y en donde se encuentra config.txt
+DIRECTORIO_BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_TXT="$DIRECTORIO_BASE/config.txt"
 
-if [ ! -f "$config" ]; then
-    echo "Error: no se encontro config.txt"
+# Carga del archivo de configuración y comprueba que existe
+if [ -f "$CONFIG_TXT" ]; then
+    source "$CONFIG_TXT"
+else
+    echo "Error: No se encuentra el archivo config.txt en $DIRECTORIO_BASE"
     exit 1
 fi
 
-source "$config"
 validar_config || exit 1
 
-# si se interrumpe el respaldo se registra el error
-trap 'echo "respaldo interrumpido"; registrar "respaldo.sh" "respaldo interrumpido"; exit 1' SIGINT SIGTERM
+# Captura de señales para asegurar salidas limpias y registrar en log si se cancela
+trap 'echo "Respaldo interrumpido por el usuario."; registrar "respaldo" "Respaldo cancelado manualmente"; exit 1' SIGINT SIGTERM
 
-# se crean las carpetas necesarias
+# Se crean las carpetas de trabajo si no existen
 mkdir -p "$LOG_DIR" "$BACKUP_DIR"
 
-if [ "$?" -ne 0 ]; then
-    echo "Error: no se pudieron crear las carpetas de trabajo."
+if [ $? -ne 0 ]; then
+    echo "Error: No se pudieron crear los directorios de logs o respaldos."
     exit 1
 fi
 
-# si el usuario manda directorios se usan esos
-# si no manda parametros se usan los directorios de config.txt
+# Si el usuario manda directorios por argumento se usan, sino, lee del config.txt
+#$# Cuenta el total de argumentos
 if [ "$#" -gt 0 ]; then
-    directorios="$*"
+    #$* representa todos los argumentos, es decir, pasa el valor de los argumentos a la variable
+    directorios_a_respaldar="$*"
 else
-    directorios="$DIRS_RESPALDO"
+    directorios_a_respaldar="$DIRS_RESPALDO"
 fi
 
-# se valida que los directorios existan
-for directorio in $directorios
-do
-    if [ ! -d "$directorio" ]; then
-        echo "Error: el directorio '$directorio' no existe."
+#Validación de existencia de cada directorio
+for dir in $directorios_a_respaldar; do
+    if [ ! -d "$dir" ]; then
+        echo "Error: El directorio origen '$dir' no existe."
+        registrar "respaldo" "Fallo: Directorio origen inexistente ($dir)"
         exit 1
     fi
 done
 
-# se prepara el nombre del respaldo
-fecha=$(date '+%Y%m%d_%H%M%S')
-nombre="respaldo_$fecha.tar.gz"
-archivo="$BACKUP_DIR/$nombre"
+# EJECUCIÓN DEL RESPALDO
+#Genera la variable fecha en orden año, mes, dia, hora, minuto, segundo
+fecha_actual=$(date +"%Y-%m-%d_%H-%M-%S")
+#genera el nombre usando la fecha
+nombre_archivo="respaldo_$fecha_actual.tar.gz"
+#toma el directorio destino con el nombre
+ruta_completa="$BACKUP_DIR/$nombre_archivo"
 
-echo "creando respaldo..."
-echo "destino: $archivo"
+echo "Generando respaldo de los directorios: $directorios_a_respaldar"
+echo "Destino: $ruta_completa"
 
-# se crea el respaldo comprimido
-tar -czf "$archivo" $directorios 2>/dev/null
+# Compresión de los directorios silenciando errores menores
+tar -czf "$ruta_completa" $directorios_a_respaldar 2>/dev/null
 
-# se valida que tar haya funcionado
-if [ "$?" -ne 0 ]; then
-    echo "Error: no se pudo crear el respaldo."
-    registrar "respaldo.sh" "error al crear respaldo"
+#COMPROBACION DEL RESPALDO
+
+#Comprueba si el anterior comando tiene fallos
+if [ $? -ne 0 ]; then
+    echo "Error: Fallo la ejecución del comando tar."
+    registrar "respaldo" "Error crítico al intentar crear el respaldo con tar."
+    enviar_telegram "Fallo en Respaldo" "Error al intentar comprimir: $directorios_a_respaldar"
     exit 1
 fi
 
-# se verifica que el respaldo se pueda leer
-tar -tzf "$archivo" > /dev/null 2>&1
-
-if [ "$?" -ne 0 ]; then
-    echo "Error: el respaldo se creo pero no paso la verificacion."
-    registrar "respaldo.sh" "respaldo no paso verificacion"
+#1. Validar que el archivo se puede leer y no está corrupto
+tar -tzf "$ruta_completa" > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo "Error: El respaldo se creó pero el archivo está corrupto."
+    registrar "respaldo" "El respaldo generado no pasó la prueba de integridad."
     exit 1
 fi
 
-# se valida que el archivo exista y tenga tamaño mayor a cero
-if [ ! -s "$archivo" ]; then
-    echo "Error: el respaldo esta vacio o no existe."
-    registrar "respaldo.sh" "respaldo vacio o inexistente"
+# 2. Validar que el archivo exista y su tamaño sea mayor a 0 bytes
+if [ ! -s "$ruta_completa" ]; then
+    echo "Error: El archivo de respaldo está vacío (0 bytes) o no se creó."
+    registrar "respaldo" "Fallo: El archivo de respaldo resultante pesa 0 bytes."
     exit 1
 fi
 
-# se eliminan respaldos antiguos segun la retencion de config.txt
+# LIMPIEZA DE RESPALDOS ANTIGUOS (OPCIONAL SEGÚN CONFIG)
 if [ -n "$RESPALDO_RETENCION" ]; then
+    #Busa respaldos de acuerdo a la decha establecida y los borra silenciosamente
     find "$BACKUP_DIR" -name "respaldo_*.tar.gz" -type f -mtime +"$RESPALDO_RETENCION" -delete 2>/dev/null
 fi
 
-tamanio=$(du -h "$archivo" | awk '{print $1}')
-fecha2=$(date '+%Y-%m-%d %H:%M:%S')
+# REPORTE Y NOTIFICACIÓN
 
-registrar "respaldo.sh" "respaldo generado $archivo tamaño $tamanio"
-enviar_telegram "Respaldo generado" "Archivo: $archivo
-Tamanio: $tamanio
-Fecha: $fecha2" || true
+# Extraer el peso formateado
+peso_formateado=$(du -sh "$ruta_completa" | awk '{print $1}')
+fecha_legible=$(date '+%Y-%m-%d %H:%M:%S')
 
-echo "respaldo generado correctamente"
-echo "archivo: $archivo"
+# Guardar en Logs
+registrar "respaldo" "Éxito: Respaldo $ruta_completa creado. Tamaño: $peso_formateado."
+
+# Notificar por Telegram
+mensaje_telegram="✅ <b>Respaldo Completado</b>
+<b>Ruta:</b> $ruta_completa
+<b>Tamaño:</b> $peso_formateado
+<b>Fecha:</b> $fecha_legible"
+
+enviar_telegram "Reporte de Respaldo" "$mensaje_telegram" || true
+
+echo "Respaldo validado y generado exitosamente con un tamaño de $peso_formateado."
+exit 0
+
