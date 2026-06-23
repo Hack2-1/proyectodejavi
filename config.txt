@@ -25,19 +25,29 @@ TELEGRAM_ENABLED="${TELEGRAM_ENABLED:-false}"
 # DIRECTORIOS Y RUTAS
 # ============================================================================
 CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR="${LOG_DIR:-$HOME/.local/state/sistema-servicios/logs}"
-BACKUP_DIR="${BACKUP_DIR:-$HOME/respaldos/sistema-servicios}"
 SCRIPTS_DIR="${SCRIPTS_DIR:-$CONFIG_DIR}"
-REPORTS_DIR="${REPORTS_DIR:-$HOME/.local/state/sistema-servicios/reportes}"
-INVENTORY_DIR="${INVENTORY_DIR:-$HOME/.local/state/sistema-servicios/inventarios}"
 HOSTS_REMOTOS_FILE="${SCRIPTS_DIR}/hosts.txt"
+
+if [ "$(id -u)" -eq 0 ]; then
+    # Rutas para ejecución como root / sistema
+    LOG_DIR="${LOG_DIR:-/var/log/sistema-servicios}"
+    BACKUP_DIR="${BACKUP_DIR:-/var/backups/sistema-servicios}"
+    REPORTS_DIR="${REPORTS_DIR:-/var/log/reportes}"
+    INVENTORY_DIR="${INVENTORY_DIR:-/var/log/inventarios}"
+else
+    # Rutas para usuario estándar
+    LOG_DIR="${LOG_DIR:-$HOME/.local/state/sistema-servicios/logs}"
+    BACKUP_DIR="${BACKUP_DIR:-$HOME/respaldos/sistema-servicios}"
+    REPORTS_DIR="${REPORTS_DIR:-$HOME/.local/state/sistema-servicios/reportes}"
+    INVENTORY_DIR="${INVENTORY_DIR:-$HOME/.local/state/sistema-servicios/inventarios}"
+fi
 
 # ============================================================================
 # UMBRALES DE MONITOREO
 # ============================================================================
-UMBRAL_CPU=70              # Porcentaje maximo de uso de CPU
-UMBRAL_DISCO=70            # Porcentaje maximo de uso de disco
-UMBRAL_MEMORIA=80          # Porcentaje maximo de uso de memoria
+UMBRAL_CPU=1            # Porcentaje máximo de uso de CPU
+UMBRAL_DISCO=1          # Porcentaje máximo de uso de disco
+UMBRAL_MEMORIA=2       # Porcentaje máximo de uso de memoria
 
 # ============================================================================
 # SERVICIOS A MONITOREAR (espacios como separador)

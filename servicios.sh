@@ -74,6 +74,8 @@ do
                 registrar "servicios.sh" "$servicio reiniciado"
                 enviar_telegram "Servicio reiniciado" "Servicio: $servicio
 Resultado: reiniciado correctamente" || true
+                # Remover de la lista de caídos para evitar doble notificación al final
+                caidos="${caidos/ $servicio/}"
             else
                 echo "no se pudo reiniciar $servicio"
                 registrar "servicios.sh" "no se pudo reiniciar $servicio"

@@ -71,7 +71,7 @@ reporte="$REPORTS_DIR/remoto_$fecha.txt"
 echo "iniciando ejecucion remota"
 
 # se lee cada host del archivo
-while IFS= read -r host
+while IFS= read -r host || [ -n "$host" ]
 do
     [ -z "$host" ] && continue
     echo "$host" | grep -q "^[[:space:]]*#" && continue

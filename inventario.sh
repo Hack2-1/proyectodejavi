@@ -1,186 +1,270 @@
 #!/bin/bash
-# este script genera un inventario de hardware y software del sistema
-# el reporte se guarda en un archivo de texto
+# inventario.sh — Recopilación de inventario del sistema
+# Uso: ./inventario.sh
+# Genera reporte completo de hardware y software del sistema
 
-# se valida que no se reciban parametros
-if [ "$#" -ne 0 ]; then
-    echo "Uso: $0"
+# 1. INICIALIZACIÓN Y VALIDACIONES
+CONFIG_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.txt"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: No se encontró config.txt"
     exit 1
 fi
 
-# se busca el archivo config.txt en la misma carpeta del script
-ruta="$(cd "$(dirname "$0")" && pwd)"
-config="$ruta/config.txt"
+source "$CONFIG_FILE"
+validar_config || exit 1
 
-# si existe config.txt se carga para usar sus rutas
-if [ -f "$config" ]; then
-    source "$config"
-fi
+# 2. CREAR DIRECTORIOS DE TRABAJO
+mkdir -p "$LOG_DIR" "$INVENTORY_DIR" 2>/dev/null || {
+    echo "Error: No se pudieron crear los directorios de reportes"
+    exit 1
+}
 
-# si se interrumpe el inventario se sale de forma limpia
-trap 'echo "inventario interrumpido"; exit 1' SIGINT SIGTERM
+# 3. VARIABLES DE TRABAJO
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+TIMESTAMP_FORMATO=$(date +"${TIMESTAMP_FORMAT}")
+ARCHIVO_INVENTARIO="${INVENTORY_DIR}/inventario_${TIMESTAMP}.txt"
 
-# si INVENTORY_DIR no existe en config se usa una carpeta local
-if [ -z "$INVENTORY_DIR" ]; then
-    INVENTORY_DIR="$ruta/inventarios"
-fi
+# 4. TRAP PARA MANEJO DE SEÑALES
+trap 'echo "Inventario interrumpido"; exit 1' SIGINT SIGTERM
 
-carpeta="$INVENTORY_DIR"
+# ============================================================================
+# FUNCIONES
+# ============================================================================
 
-# se crea la carpeta donde se guardara el inventario
-mkdir -p "$carpeta"
+# 5. Obtener información de CPU
+obtener_info_cpu() {
+    echo "═══ INFORMACIÓN DE PROCESADOR ═══"
 
-# se valida que la carpeta se haya creado correctamente
-if [ "$?" -ne 0 ]; then
-    echo "Error: no se pudo crear la carpeta '$carpeta'."
+    # Modelo de CPU
+    if [ -f /proc/cpuinfo ]; then
+        echo "Modelo: $(grep -m 1 'model name' /proc/cpuinfo | cut -d':' -f2 | xargs)"
+    else
+        echo "Modelo: $(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo 'Desconocido')"
+    fi
+
+    # Número de núcleos
+    local nucleos=$(nproc 2>/dev/null || grep -c "processor" /proc/cpuinfo 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "1")
+    echo "Núcleos: $nucleos"
+
+    # Velocidad de CPU
+    if [ -f /proc/cpuinfo ]; then
+        local velocidad=$(grep -m 1 'cpu MHz' /proc/cpuinfo | cut -d':' -f2 | xargs)
+        [ -n "$velocidad" ] && echo "Velocidad: ${velocidad} MHz"
+    fi
+
+    echo ""
+}
+
+# 6. Obtener información de memoria
+obtener_info_memoria() {
+    echo "═══ INFORMACIÓN DE MEMORIA ═══"
+
+    local total=$(free -m 2>/dev/null | awk 'NR==2 {print $2}' || sysctl -n hw.memsize 2>/dev/null | awk '{printf "%.0f", $1/1024/1024}')
+    local usada=$(free -m 2>/dev/null | awk 'NR==2 {print $3}' || echo "0")
+    local disponible=$(free -m 2>/dev/null | awk 'NR==2 {print $7}' || echo "$total")
+    local porcentaje=$(awk "BEGIN {printf \"%.1f\", ($usada/$total)*100}" 2>/dev/null || echo "0")
+
+    echo "Total: ${total} MB ($(awk "BEGIN {printf \"%.2f\", $total/1024}" 2>/dev/null || echo "0") GB)"
+    echo "Usada: ${usada} MB"
+    echo "Disponible: ${disponible} MB"
+    echo "Porcentaje usado: ${porcentaje}%"
+
+    echo ""
+}
+
+# 7. Obtener información de almacenamiento
+obtener_info_almacenamiento() {
+    echo "═══ INFORMACIÓN DE ALMACENAMIENTO ═══"
+
+    df -h | while IFS= read -r linea; do
+        echo "$linea"
+    done
+
+    echo ""
+}
+
+# 8. Obtener información del sistema operativo
+obtener_info_sistema() {
+    echo "═══ INFORMACIÓN DEL SISTEMA OPERATIVO ═══"
+
+    # Nombre del SO
+    if [ -f /etc/os-release ]; then
+        echo "SO: $(grep '^NAME=' /etc/os-release | cut -d'=' -f2 | tr -d '"')"
+        echo "Versión: $(grep '^VERSION=' /etc/os-release | cut -d'=' -f2 | tr -d '"')"
+    elif [ -f /etc/lsb-release ]; then
+        echo "SO: $(grep 'DISTRIB_DESCRIPTION' /etc/lsb-release | cut -d'=' -f2 | tr -d '"')"
+    else
+        echo "SO: $(sw_vers -productName 2>/dev/null || echo 'Desconocido')"
+    fi
+
+    # Kernel
+    echo "Kernel: $(uname -r)"
+
+    # Hostname
+    echo "Hostname: $(hostname)"
+
+    # Uptime
+    echo "Uptime: $(uptime -p 2>/dev/null || uptime | sed 's/.*up //' | sed 's/,.*$//')"
+
+    echo ""
+}
+
+# 9. Obtener información de dispositivos
+obtener_info_dispositivos() {
+    echo "═══ INFORMACIÓN DE DISPOSITIVOS ═══"
+
+    # Interfaces de red
+    echo "Interfaces de red:"
+    if command -v ip &>/dev/null; then
+        ip -o link show | awk -F': ' '{print "  - " $2}' | head -10
+    else
+        ifconfig 2>/dev/null | grep "^[a-z]" | awk '{print "  - " $1}' | head -10
+    fi
+
+    echo ""
+
+    # Unidades de almacenamiento
+    echo "Unidades de almacenamiento:"
+    if [ -f /proc/partitions ]; then
+        awk 'NR>2 {print "  - " $4 " (" $3 " KB)"}' /proc/partitions | head -10
+    fi
+
+    echo ""
+}
+
+# 10. Obtener información de servicios
+obtener_info_servicios() {
+    echo "═══ SERVICIOS ACTIVOS ═══"
+
+    if command -v systemctl &>/dev/null; then
+        echo "Servicios activos (systemd):"
+        systemctl list-units --type=service --state=running 2>/dev/null | \
+            grep -v '^UNIT' | \
+            grep -v '^$' | \
+            awk '{print "  - " $1}' | \
+            head -15
+    fi
+
+    echo ""
+}
+
+# 11. Obtener información de usuarios
+obtener_info_usuarios() {
+    echo "═══ USUARIOS DEL SISTEMA ═══"
+
+    echo "Usuarios con shell de login (UID >= 1000):"
+    awk -F: '$3 >= 1000 && $3 < 65534 {print "  - " $1 " (UID: " $3 ", Shell: " $7 ")"}' /etc/passwd
+
+    echo ""
+}
+
+# 12. Generar reporte de texto plano
+generar_reporte_texto() {
+    local archivo="$1"
+
+    {
+        echo "╔════════════════════════════════════════════════════════════╗"
+        echo "║        INVENTARIO DEL SISTEMA - $(date +%Y-%m-%d' '%H:%M:%S)           ║"
+        echo "╚════════════════════════════════════════════════════════════╝"
+        echo ""
+
+        obtener_info_sistema
+        obtener_info_cpu
+        obtener_info_memoria
+        obtener_info_almacenamiento
+        obtener_info_dispositivos
+        obtener_info_servicios
+        obtener_info_usuarios
+
+        echo "╔════════════════════════════════════════════════════════════╗"
+        echo "║ Reporte generado: $TIMESTAMP_FORMATO"
+        echo "║ Por: $(whoami)"
+        echo "║ Desde: $(hostname)"
+        echo "╚════════════════════════════════════════════════════════════╝"
+    } > "$archivo"
+}
+
+# 13. Generar reporte JSON
+generar_reporte_json() {
+    local archivo="$1"
+
+    {
+        echo "{"
+        echo "  \"timestamp\": \"$TIMESTAMP_FORMATO\","
+        echo "  \"hostname\": \"$(hostname)\","
+        echo "  \"sistema\": {"
+
+        # Sistema
+        if [ -f /etc/os-release ]; then
+            echo "    \"so\": \"$(grep '^NAME=' /etc/os-release | cut -d'=' -f2 | tr -d '"')\","
+        fi
+        echo "    \"kernel\": \"$(uname -r)\","
+        echo "    \"uptime\": \"$(uptime -p 2>/dev/null || echo 'N/A')\""
+
+        echo "  },"
+        echo "  \"hardware\": {"
+
+        # CPU
+        local nucleos=$(nproc 2>/dev/null || echo "1")
+        echo "    \"nucleos_cpu\": $nucleos,"
+
+        # Memoria
+        local memoria_total=$(free -m 2>/dev/null | awk 'NR==2 {print $2}' || echo "0")
+        echo "    \"memoria_total_mb\": $memoria_total"
+
+        echo "  }"
+        echo "}"
+    } > "$archivo"
+}
+
+# ============================================================================
+# EJECUCIÓN PRINCIPAL
+# ============================================================================
+
+echo "╔════════════════════════════════════════╗"
+echo "║   GENERADOR DE INVENTARIO DEL SISTEMA   ║"
+echo "╚════════════════════════════════════════╝"
+echo ""
+
+registrar "inventario.sh" "INICIO: Generando inventario del sistema"
+
+# Generar reporte de texto
+echo "[*] Generando reporte de texto..."
+generar_reporte_texto "$ARCHIVO_INVENTARIO"
+
+if [ -f "$ARCHIVO_INVENTARIO" ]; then
+    echo "✓ Reporte de texto generado: $ARCHIVO_INVENTARIO"
+
+    # Mostrar preview
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    head -40 "$ARCHIVO_INVENTARIO"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    registrar "inventario.sh" "COMPLETADO: Reporte de inventario generado - $ARCHIVO_INVENTARIO"
+
+    # Enviar notificación por Telegram
+    CPU_COUNT=$(nproc 2>/dev/null || echo "N/A")
+    MEMORIA_TOTAL=$(free -m 2>/dev/null | awk 'NR==2 {printf "%.0f MB", $2}' || echo "N/A")
+    USO_DISCO=$(df -h / 2>/dev/null | awk 'NR==2 {print $5}' || echo "N/A")
+
+    MSG="📋 INVENTARIO GENERADO 📋
+
+Hostname: $(hostname)
+CPU: $CPU_COUNT núcleos
+Memoria: $MEMORIA_TOTAL
+Uso Disco: $USO_DISCO
+
+Reporte: $ARCHIVO_INVENTARIO"
+
+    enviar_telegram "Inventario del Sistema" "$MSG" || true
+
+    exit 0
+else
+    echo "✗ Error al generar reporte"
+    registrar "inventario.sh" "ERROR: No se pudo generar el reporte de inventario"
     exit 1
 fi
 
-# se guardan fechas para el reporte y para el nombre del archivo
-fecha=$(date '+%Y-%m-%d %H:%M:%S')
-fecha2=$(date '+%Y%m%d_%H%M%S')
-
-# se indica donde se va a guardar el inventario
-archivo="$carpeta/inventario_$fecha2.txt"
-
-# se guardan datos basicos del sistema
-host=$(hostname)
-usuario=$(id -un)
-kernel=$(uname -r)
-nucleos=$(nproc 2>/dev/null)
-
-# se valida si no se pudo obtener la cantidad de nucleos
-if [ -z "$nucleos" ]; then
-    nucleos="No disponible"
-fi
-
-# se obtiene el nombre del sistema operativo
-if [ -f /etc/os-release ]; then
-    sistema=$(grep "^PRETTY_NAME=" /etc/os-release | cut -d "=" -f 2 | tr -d '"')
-else
-    sistema="Desconocido"
-fi
-
-# se obtiene el modelo del procesador
-if [ -f /proc/cpuinfo ]; then
-    procesador=$(grep -m 1 "model name" /proc/cpuinfo | cut -d ":" -f 2)
-else
-    procesador="Desconocido"
-fi
-
-# se obtiene informacion de memoria para el resumen
-memoria_total=$(free -h 2>/dev/null | awk 'NR==2 {print $2}')
-memoria_usada=$(free -h 2>/dev/null | awk 'NR==2 {print $3}')
-memoria_disponible=$(free -h 2>/dev/null | awk 'NR==2 {print $7}')
-
-# si no se pudo obtener memoria se deja como no disponible
-if [ -z "$memoria_total" ]; then
-    memoria_total="No disponible"
-fi
-
-if [ -z "$memoria_usada" ]; then
-    memoria_usada="No disponible"
-fi
-
-if [ -z "$memoria_disponible" ]; then
-    memoria_disponible="No disponible"
-fi
-
-# se obtiene el uso del disco raiz
-disco=$(df -h / 2>/dev/null | awk 'NR==2 {print $5}')
-
-if [ -z "$disco" ]; then
-    disco="No disponible"
-fi
-
-# se escribe el reporte principal
-echo "inventario del sistema" > "$archivo"
-echo "fecha: $fecha" >> "$archivo"
-echo "host: $host" >> "$archivo"
-echo "usuario: $usuario" >> "$archivo"
-echo "" >> "$archivo"
-
-# se guarda informacion del sistema operativo
-echo "sistema operativo:" >> "$archivo"
-echo "sistema: $sistema" >> "$archivo"
-echo "kernel: $kernel" >> "$archivo"
-echo "tiempo encendido:" >> "$archivo"
-uptime -p >> "$archivo" 2>/dev/null
-echo "" >> "$archivo"
-
-# se guarda informacion del hardware
-echo "hardware:" >> "$archivo"
-echo "procesador:$procesador" >> "$archivo"
-echo "nucleos cpu: $nucleos" >> "$archivo"
-echo "memoria total: $memoria_total" >> "$archivo"
-echo "memoria usada: $memoria_usada" >> "$archivo"
-echo "memoria disponible: $memoria_disponible" >> "$archivo"
-echo "uso del disco raiz: $disco" >> "$archivo"
-echo "" >> "$archivo"
-
-# se guarda la tabla completa de memoria
-echo "detalle de memoria:" >> "$archivo"
-free -h >> "$archivo" 2>/dev/null
-echo "" >> "$archivo"
-
-# se guarda informacion de discos y particiones
-echo "discos y particiones:" >> "$archivo"
-df -h >> "$archivo" 2>/dev/null
-echo "" >> "$archivo"
-
-# se guarda informacion de interfaces de red
-echo "interfaces de red:" >> "$archivo"
-if command -v ip > /dev/null 2>&1; then
-    ip -o link show | awk -F': ' '{print $2}' >> "$archivo"
-else
-    echo "No disponible" >> "$archivo"
-fi
-echo "" >> "$archivo"
-
-# se guarda informacion de usuarios normales
-echo "usuarios del sistema:" >> "$archivo"
-awk -F: '$3 >= 1000 && $3 < 65534 {print $1 " - UID: " $3 " - Shell: " $7}' /etc/passwd >> "$archivo"
-echo "" >> "$archivo"
-
-# se guarda informacion de servicios activos si existe systemctl
-echo "servicios activos:" >> "$archivo"
-if command -v systemctl > /dev/null 2>&1; then
-    systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null | awk '{print $1}' | head -15 >> "$archivo"
-else
-    echo "systemctl no disponible" >> "$archivo"
-fi
-echo "" >> "$archivo"
-
-# se guarda informacion de programas instalados segun el gestor disponible
-echo "software instalado:" >> "$archivo"
-if command -v dpkg > /dev/null 2>&1; then
-    dpkg -l | awk 'NR>5 {print $2}' | head -30 >> "$archivo"
-elif command -v rpm > /dev/null 2>&1; then
-    rpm -qa | head -30 >> "$archivo"
-else
-    echo "gestor de paquetes no disponible" >> "$archivo"
-fi
-
-# se registra en log si existe la funcion registrar de config.txt
-if type registrar > /dev/null 2>&1; then
-    registrar "inventario.sh" "Inventario generado en $archivo"
-fi
-
-# se envia resumen por telegram si esta configurado
-if type enviar_telegram > /dev/null 2>&1; then
-    enviar_telegram "Inventario generado" "Host: $host
-CPU: $nucleos nucleos
-Memoria total: $memoria_total
-Memoria disponible: $memoria_disponible
-Uso disco raiz: $disco
-Reporte: $archivo" || true
-fi
-
-# se muestra el resultado final al usuario
-if [ -f "$archivo" ]; then
-    echo "Inventario generado correctamente."
-    echo "Archivo: $archivo"
-else
-    echo "Error: no se pudo generar el inventario."
-    exit 1
-fi

@@ -28,16 +28,15 @@ if [ $? -ne 0 ]; then
 fi
 
 # Si el usuario manda directorios por argumento se usan, sino, lee del config.txt
-#$# Cuenta el total de argumentos
 if [ "$#" -gt 0 ]; then
-    #$* representa todos los argumentos, es decir, pasa el valor de los argumentos a la variable
-    directorios_a_respaldar="$*"
+    directorios_a_respaldar=("$@")
 else
-    directorios_a_respaldar="$DIRS_RESPALDO"
+    # shellcheck disable=SC2206
+    directorios_a_respaldar=($DIRS_RESPALDO)
 fi
 
 #Validación de existencia de cada directorio
-for dir in $directorios_a_respaldar; do
+for dir in "${directorios_a_respaldar[@]}"; do
     if [ ! -d "$dir" ]; then
         echo "Error: El directorio origen '$dir' no existe."
         registrar "respaldo" "Fallo: Directorio origen inexistente ($dir)"
@@ -46,18 +45,23 @@ for dir in $directorios_a_respaldar; do
 done
 
 # EJECUCIÓN DEL RESPALDO
-#Genera la variable fecha en orden año, mes, dia, hora, minuto, segundo
 fecha_actual=$(date +"%Y-%m-%d_%H-%M-%S")
-#genera el nombre usando la fecha
-nombre_archivo="respaldo_$fecha_actual.tar.gz"
-#toma el directorio destino con el nombre
+
+# Determinar formato de compresión
+case "$RESPALDO_COMPRESION" in
+    "bzip2") ext="tar.bz2"; flag_comp="-cj"; flag_test="-tj" ;;
+    "xz")    ext="tar.xz";  flag_comp="-cJ"; flag_test="-tJ" ;;
+    *)       ext="tar.gz";  flag_comp="-cz"; flag_test="-tz" ;;
+esac
+
+nombre_archivo="respaldo_$fecha_actual.$ext"
 ruta_completa="$BACKUP_DIR/$nombre_archivo"
 
-echo "Generando respaldo de los directorios: $directorios_a_respaldar"
+echo "Generando respaldo de los directorios: ${directorios_a_respaldar[*]}"
 echo "Destino: $ruta_completa"
 
 # Compresión de los directorios silenciando errores menores
-tar -czf "$ruta_completa" $directorios_a_respaldar 2>/dev/null
+tar "$flag_comp" -f "$ruta_completa" "${directorios_a_respaldar[@]}" 2>/dev/null
 
 #COMPROBACION DEL RESPALDO
 
@@ -65,12 +69,12 @@ tar -czf "$ruta_completa" $directorios_a_respaldar 2>/dev/null
 if [ $? -ne 0 ]; then
     echo "Error: Fallo la ejecución del comando tar."
     registrar "respaldo" "Error crítico al intentar crear el respaldo con tar."
-    enviar_telegram "Fallo en Respaldo" "Error al intentar comprimir: $directorios_a_respaldar"
+    enviar_telegram "Fallo en Respaldo" "Error al intentar comprimir: ${directorios_a_respaldar[*]}"
     exit 1
 fi
 
 #1. Validar que el archivo se puede leer y no está corrupto
-tar -tzf "$ruta_completa" > /dev/null 2>&1
+tar "$flag_test" -f "$ruta_completa" > /dev/null 2>&1
 if [ $? -ne 0 ]; then
     echo "Error: El respaldo se creó pero el archivo está corrupto."
     registrar "respaldo" "El respaldo generado no pasó la prueba de integridad."
@@ -87,7 +91,7 @@ fi
 # LIMPIEZA DE RESPALDOS ANTIGUOS (OPCIONAL SEGÚN CONFIG)
 if [ -n "$RESPALDO_RETENCION" ]; then
     #Busa respaldos de acuerdo a la decha establecida y los borra silenciosamente
-    find "$BACKUP_DIR" -name "respaldo_*.tar.gz" -type f -mtime +"$RESPALDO_RETENCION" -delete 2>/dev/null
+    find "$BACKUP_DIR" -name "respaldo_*.tar.*" -type f -mtime +"$RESPALDO_RETENCION" -delete 2>/dev/null
 fi
 
 # REPORTE Y NOTIFICACIÓN

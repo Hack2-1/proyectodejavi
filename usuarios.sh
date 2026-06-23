@@ -47,14 +47,15 @@ comprobar_usuario() {
 #Arranca la variable en 0 para que entre al bucle
 opcion=0
 
-while [ "$opcion" != "4" ]; do
+while [ "$opcion" != "5" ]; do
 	echo "========================================="
 	echo "       GESTIÓN DE USUARIOS DEL SISTEMA   "
     echo "========================================="
 	echo "1. Crear un usuario nuevo"
 	echo "2. Eliminar un usuario existente"
 	echo "3. Modificar un usuario"
-	echo "4. Salir"
+	echo "4. Listar usuarios"
+	echo "5. Salir"
 	read -p "Selecciona la acción deseada: " opcion
 
 	case $opcion in
@@ -186,14 +187,26 @@ while [ "$opcion" != "4" ]; do
             ;;
 
         # ---------------------------------------------------------
-        # OPCIÓN 4: SALIR
+        # OPCIÓN 4: LISTAR USUARIOS
         # ---------------------------------------------------------
         4)
+            echo "-----------------------------------------"
+            echo "      USUARIOS DEL SISTEMA (UID >= 1000) "
+            echo "-----------------------------------------"
+            awk -F: '$3 >= 1000 && $3 < 65534 {print "- Usuario: " $1 " | UID: " $3 " | Directorio: " $6 " | Shell: " $7}' /etc/passwd
+            echo "-----------------------------------------"
+            registrar "usuarios" "Se ha consultado la lista de usuarios del sistema"
+            ;;
+
+        # ---------------------------------------------------------
+        # OPCIÓN 5: SALIR
+        # ---------------------------------------------------------
+        5)
             echo "Saliendo del gestor de usuarios de forma limpia..."
             exit 0
             ;;
         *)
-            echo "Opción no válida. Por favor, selecciona un número del 1 al 4."
+            echo "Opción no válida. Por favor, selecciona un número del 1 al 5."
             ;;
     esac
 done
